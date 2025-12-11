@@ -8,6 +8,10 @@ import {
 } from "./service";
 import { loggingMiddleware } from "./middleware/logging";
 import { logger } from "./logger";
+import {
+  getServicesStatus,
+  startBackgroundUpdates,
+} from "./services/status-checker";
 
 const app = new Hono();
 
@@ -33,6 +37,7 @@ app.get("/", (c) => {
       hackernews: "/api/news/hackernews",
       mix: "/api/news/mix",
       comments: "/api/comments/:username/:slug",
+      servicesStatus: "/api/services/status",
     },
   });
 });
@@ -132,6 +137,26 @@ app.get("/api/comments/:username/:slug", async (c) => {
   }
 });
 
+// Get cloud services status
+app.get("/api/services/status", async (c) => {
+  try {
+    const status = await getServicesStatus();
+    return c.json(status);
+  } catch (error) {
+    const logger = c.get("logger");
+    logger.error("Error fetching services status", {
+      error: error instanceof Error ? error.message : String(error),
+      stack: error instanceof Error ? error.stack : undefined,
+    });
+    return c.json(
+      {
+        error: "Falha ao carregar status dos serviços",
+      },
+      500,
+    );
+  }
+});
+
 // 404 handler
 app.notFound((c) => {
   return c.json(
@@ -143,6 +168,7 @@ app.notFound((c) => {
         "GET /api/news/hackernews",
         "GET /api/news/mix",
         "GET /api/comments/:username/:slug",
+        "GET /api/services/status",
       ],
     },
     404,
@@ -167,6 +193,9 @@ app.onError((err, c) => {
 });
 
 const port = process.env.PORT || 8080;
+
+// Start background task for service status monitoring
+startBackgroundUpdates();
 
 logger.info(`🚀 TechNews API rodando em http://localhost:${port}`);
 

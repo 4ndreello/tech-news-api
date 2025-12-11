@@ -66,3 +66,22 @@ export interface CacheEntry<T> {
   data: T;
   timestamp: number;
 }
+
+// Service Status Types
+export enum ServiceStatusType {
+  Operational = "operational",
+  Degraded = "degraded",
+  Down = "down",
+}
+
+export interface ServiceStatus {
+  name: string;
+  status: ServiceStatusType;
+  lastChecked: string; // ISO 8601
+  url: string; // Link para a página de status oficial
+}
+
+export interface ServicesStatusResponse {
+  services: ServiceStatus[];
+  lastUpdate: string; // ISO 8601
+}
