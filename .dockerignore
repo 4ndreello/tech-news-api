@@ -1,0 +1,49 @@
+# Node modules
+node_modules/
+npm-debug.log
+yarn-error.log
+bun.lockb.bak
+
+# Development files
+.git/
+.gitignore
+.env.local
+.env.development
+*.md
+!README.md
+
+# Test files
+test/
+tests/
+*.test.ts
+*.spec.ts
+__tests__/
+coverage/
+
+# Documentation
+docs/
+*.md
+LOGGING.md
+test-results.md
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+
+# Build artifacts
+dist/
+build/
+*.log
+
+# Temporary files
+tmp/
+temp/
+.tmp/
+/tmp/
+
+# Test and development scripts
+src/test-ranking.ts
