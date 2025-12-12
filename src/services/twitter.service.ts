@@ -9,13 +9,7 @@ export class TwitterService {
 
   // Tech influencers and official accounts to follow
   // Reduced to avoid rate limits on Free Tier
-  private readonly TECH_ACCOUNTS = [
-    "vercel",
-    "ThePrimeagen",
-    "wesbos",
-    "kentcdodds",
-    "addyosmani",
-  ];
+  private readonly TECH_ACCOUNTS = ["vercel", "dhh"];
 
   // Tech hashtags to search (DISABLED to avoid rate limits)
   // private readonly TECH_HASHTAGS = [
@@ -65,7 +59,7 @@ export class TwitterService {
           const tweets = await this.searchTweetsFromAccount(
             client,
             account,
-          30,
+            30,
           );
           this.logger.info(`fetched ${tweets.length} tweets from @${account}`, {
             account,
@@ -101,9 +95,7 @@ export class TwitterService {
 
       // Remove duplicates based on tweet ID
       const uniqueTweets = Array.from(
-        new Map(
-          allTweets.map((t) => [t.tweet.id, t]),
-        ).values(),
+        new Map(allTweets.map((t) => [t.tweet.id, t])).values(),
       );
 
       this.logger.info("completed fetching tweets", {
