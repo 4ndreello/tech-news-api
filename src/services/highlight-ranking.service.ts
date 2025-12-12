@@ -1,5 +1,11 @@
 import { singleton } from "tsyringe";
-import type { Highlight, RedditPost } from "../types";
+import type {
+  ArticleWithAuthor,
+  DevToArticle,
+  Highlight,
+  RedditPost,
+  TwitterTweet,
+} from "../types";
 
 function decodeHtmlEntities(str: string): string {
   return str
@@ -128,10 +134,24 @@ export class HighlightRankingService {
   // Calculate combined engagement score for ranking
   calculateEngagementScore(highlight: Highlight): number {
     const upvotes = highlight.engagement.upvotes || 0;
+    const likes = highlight.engagement.likes || 0;
     const comments = highlight.engagement.comments || 0;
+    const shares = highlight.engagement.shares || 0;
 
-    // Engagement score with comment weight
-    return upvotes + comments * 2; // Comments are worth 2x upvotes
+    // For Reddit: upvotes + comments * 2
+    // For Twitter: likes + comments * 2 + shares * 1.5
+    // For Dev.to (source "twitter" usado): likes (reactions) + comments * 3
+    if (highlight.source === "reddit") {
+      return upvotes + comments * 2;
+    } else if (highlight.source === "twitter") {
+      // Twitter logic: likes + comments * 2 + shares * 1.5
+      return likes + comments * 2 + shares * 1.5;
+    } else if (highlight.source === "devto") {
+      // Dev.to logic: likes (reactions) + comments * 3
+      return likes + comments * 3;
+    }
+
+    return upvotes + likes + comments * 2 + (shares || 0) * 1.5;
   }
 
   // Rank highlights by combined score
@@ -141,5 +161,140 @@ export class HighlightRankingService {
       const scoreB = b.aiConfidence * this.calculateEngagementScore(b);
       return scoreB - scoreA;
     });
+  }
+
+  // === TWITTER METHODS ===
+
+  // Calculate relevance score for Twitter (0-100)
+  calculateRelevanceForTwitter(tweet: TwitterTweet): number {
+    let score = 0;
+
+    const content = tweet.text.toLowerCase();
+
+    // Keyword matching (max 40 points)
+    const matchedKeywords = this.TECH_KEYWORDS.filter((keyword) =>
+      content.includes(keyword.toLowerCase()),
+    );
+    score += Math.min(matchedKeywords.length * 5, 40);
+
+    // Engagement score (max 30 points)
+    const likes = tweet.public_metrics.like_count;
+    score += Math.min(likes / 100, 30);
+
+    // Comment/reply engagement (max 20 points)
+    const replies = tweet.public_metrics.reply_count;
+    score += Math.min(replies / 5, 20);
+
+    // Recency bonus (max 10 points)
+    const hoursAgo =
+      (Date.now() - new Date(tweet.created_at).getTime()) / (1000 * 60 * 60);
+    if (hoursAgo < 6) score += 10;
+    else if (hoursAgo < 12) score += 7;
+    else if (hoursAgo < 24) score += 4;
+
+    return Math.min(Math.round(score), 100);
+  }
+
+  // Generate summary from tweet
+  generateSummaryForTwitter(tweet: TwitterTweet): string {
+    // Remove URLs from tweet text for cleaner summary
+    let summary = tweet.text;
+
+    if (tweet.entities?.urls) {
+      tweet.entities.urls.forEach((url) => {
+        summary = summary.replace(url.url, "");
+      });
+    }
+
+    // Limit to 200 characters
+    summary = summary.trim();
+    if (summary.length > 200) {
+      return summary.substring(0, 197) + "...";
+    }
+
+    return summary;
+  }
+
+  // Normalize Twitter tweet to Highlight
+  normalizeTwitterTweet(tweet: TwitterTweet, username: string): Highlight {
+    const relevance = this.calculateRelevanceForTwitter(tweet);
+
+    return {
+      id: `tw-${tweet.id}`,
+      title: this.generateSummaryForTwitter(tweet),
+      summary: this.generateSummaryForTwitter(tweet),
+      source: "devto",
+      author: username,
+      url: `https://twitter.com/${username}/status/${tweet.id}`,
+      engagement: {
+        likes: tweet.public_metrics.like_count,
+        comments: tweet.public_metrics.reply_count,
+        shares: tweet.public_metrics.retweet_count,
+      },
+      publishedAt: tweet.created_at,
+      aiConfidence: relevance,
+    };
+  }
+
+  // === DEV.TO METHODS ===
+
+  // Calculate relevance score for Dev.to articles (0-100)
+  calculateRelevanceForDevTo(article: DevToArticle): number {
+    let score = 0;
+
+    const title = article.title.toLowerCase();
+    const desc = (article.description || "").toLowerCase();
+    const tags = article.tag_list.join(" ").toLowerCase();
+    const content = `${title} ${desc} ${tags}`;
+
+    // Keyword matching (max 40 points)
+    const matchedKeywords = this.TECH_KEYWORDS.filter((keyword) =>
+      content.includes(keyword.toLowerCase())
+    );
+    score += Math.min(matchedKeywords.length * 5, 40);
+
+    // Engagement score (max 30 points)
+    const reactions = article.positive_reactions_count;
+    score += Math.min(reactions / 20, 30);
+
+    // Comment engagement (max 20 points)
+    const comments = article.comments_count;
+    score += Math.min(comments / 3, 20);
+
+    // Recency bonus (max 10 points)
+    const hoursAgo =
+      (Date.now() - new Date(article.published_at).getTime()) /
+      (1000 * 60 * 60);
+    if (hoursAgo < 24) score += 10;
+    else if (hoursAgo < 48) score += 7;
+    else if (hoursAgo < 72) score += 4;
+
+    return Math.min(Math.round(score), 100);
+  }
+
+  // Normalize Dev.to article to Highlight
+  normalizeDevToArticle(article: DevToArticle, username: string): Highlight {
+    const relevance = this.calculateRelevanceForDevTo(article);
+
+    // Use description as summary, fallback to title
+    let summary = article.description || article.title;
+    if (summary.length > 200) {
+      summary = summary.substring(0, 197) + "...";
+    }
+
+    return {
+      id: `dt-${article.id}`,
+      title: article.title,
+      summary: summary,
+      source: "devto", // Dev.to source
+      author: username,
+      url: article.url,
+      engagement: {
+        likes: article.positive_reactions_count,
+        comments: article.comments_count,
+      },
+      publishedAt: article.published_at,
+      aiConfidence: relevance,
+    };
   }
 }

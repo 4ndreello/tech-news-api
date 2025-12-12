@@ -88,7 +88,7 @@ export interface ServicesStatusResponse {
 }
 
 // Highlights Types
-export type HighlightSource = "twitter" | "reddit";
+export type HighlightSource = "twitter" | "reddit" | "devto";
 
 export interface HighlightEngagement {
   likes?: number; // Twitter
@@ -135,4 +135,85 @@ export interface RedditResponse {
     after?: string;
     before?: string;
   };
+}
+
+// Twitter/X API Response Types
+export interface TwitterTweet {
+  id: string;
+  text: string;
+  author_id: string;
+  created_at: string; // ISO 8601
+  public_metrics: {
+    retweet_count: number;
+    reply_count: number;
+    like_count: number;
+    quote_count: number;
+    bookmark_count: number;
+    impression_count: number;
+  };
+  entities?: {
+    urls?: Array<{
+      url: string;
+      expanded_url: string;
+      display_url: string;
+    }>;
+    hashtags?: Array<{
+      start: number;
+      end: number;
+      tag: string;
+    }>;
+  };
+  referenced_tweets?: Array<{
+    type: "retweeted" | "quoted" | "replied_to";
+    id: string;
+  }>;
+}
+
+export interface TwitterUser {
+  id: string;
+  name: string;
+  username: string;
+  verified?: boolean;
+  public_metrics?: {
+    followers_count: number;
+    following_count: number;
+    tweet_count: number;
+  };
+}
+
+export interface TweetWithAuthor {
+  tweet: TwitterTweet;
+  username: string;
+}
+
+// Dev.to API Response Types
+export interface DevToArticle {
+  id: number;
+  title: string;
+  description: string;
+  published_at: string; // ISO 8601
+  tag_list: string[];
+  slug: string;
+  url: string;
+  canonical_url: string;
+  comments_count: number;
+  public_reactions_count: number;
+  positive_reactions_count: number;
+  user: {
+    name: string;
+    username: string;
+    twitter_username?: string;
+    github_username?: string;
+  };
+  organization?: {
+    name: string;
+    username: string;
+    slug: string;
+  };
+  reading_time_minutes: number;
+}
+
+export interface ArticleWithAuthor {
+  article: DevToArticle;
+  username: string;
 }

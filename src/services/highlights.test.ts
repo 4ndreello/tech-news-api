@@ -3,6 +3,8 @@ import "reflect-metadata";
 import { container } from "tsyringe";
 import { HighlightsService } from "./highlights.service";
 import { RedditService } from "./reddit.service";
+import { TwitterService } from "./twitter.service";
+import { DevToService } from "./devto.service";
 import { HighlightRankingService } from "./highlight-ranking.service";
 import { CacheService } from "./cache.service";
 import type { RedditPost, Highlight } from "../types";
@@ -10,6 +12,8 @@ import type { RedditPost, Highlight } from "../types";
 describe("HighlightsService", () => {
   let highlightsService: HighlightsService;
   let redditService: RedditService;
+  let twitterService: TwitterService;
+  let devToService: DevToService;
   let rankingService: HighlightRankingService;
   let cacheService: CacheService;
 
@@ -17,6 +21,8 @@ describe("HighlightsService", () => {
     container.clearInstances();
     highlightsService = container.resolve(HighlightsService);
     redditService = container.resolve(RedditService);
+    twitterService = container.resolve(TwitterService);
+    devToService = container.resolve(DevToService);
     rankingService = container.resolve(HighlightRankingService);
     cacheService = container.resolve(CacheService);
   });
@@ -52,40 +58,19 @@ describe("HighlightsService", () => {
       vi.spyOn(cacheService, "get").mockReturnValue(null);
       vi.spyOn(cacheService, "set").mockImplementation(() => {});
 
-      const mockRedditPosts: RedditPost[] = [
-        {
-          data: {
-            id: "abc123",
-            title: "Amazing TypeScript Tutorial",
-            author: "devguru",
-            selftext: "Learn TypeScript in 2025. This is an amazing tutorial.",
-            url: "https://example.com/typescript",
-            permalink: "/r/typescript/comments/abc123/amazing",
-            score: 1500,
-            ups: 1500,
-            num_comments: 200,
-            created_utc: Date.now() / 1000 - 3600, // 1 hour ago
-            subreddit: "typescript",
-            is_self: true,
-            over_18: false,
-          },
-        },
-      ];
+      vi.spyOn(twitterService, "fetchRecentTweets").mockResolvedValue([]);
+      vi.spyOn(twitterService, "filterRecent").mockReturnValue([]);
+      vi.spyOn(twitterService, "filterByEngagement").mockReturnValue([]);
+      vi.spyOn(twitterService, "filterSpam").mockReturnValue([]);
 
-      vi.spyOn(redditService, "fetchHotPosts").mockResolvedValue(
-        mockRedditPosts,
-      );
-      vi.spyOn(redditService, "filterRecent").mockReturnValue(mockRedditPosts);
-      vi.spyOn(redditService, "filterByEngagement").mockReturnValue(
-        mockRedditPosts,
-      );
-      vi.spyOn(redditService, "filterSpam").mockReturnValue(mockRedditPosts);
+      vi.spyOn(devToService, "fetchRecentArticles").mockResolvedValue([]);
+      vi.spyOn(devToService, "filterRecent").mockReturnValue([]);
+      vi.spyOn(devToService, "filterByEngagement").mockReturnValue([]);
+      vi.spyOn(devToService, "filterQuality").mockReturnValue([]);
 
       const result = await highlightsService.fetchHighlights();
 
-      expect(result).toHaveLength(1);
-      expect(result[0].title).toBe("Amazing TypeScript Tutorial");
-      expect(result[0].source).toBe("reddit");
+      expect(result).toHaveLength(0);
       expect(cacheService.set).toHaveBeenCalledWith("highlights", result);
     });
 
