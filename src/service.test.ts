@@ -1,16 +1,24 @@
+import "reflect-metadata";
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
+import { container } from "tsyringe";
 import {
-  calculateRank,
-  fetchTabNews,
-  fetchHackerNews,
-  fetchSmartMix,
-  fetchTabNewsComments,
-  clearCache,
-} from "./service";
+  RankingService,
+  TabNewsService,
+  HackerNewsService,
+  SmartMixService,
+  CacheService,
+} from "./services";
 import { Source } from "./types";
 import type { NewsItem } from "./types";
 
-describe("calculateRank", () => {
+describe("RankingService", () => {
+  let rankingService: RankingService;
+
+  beforeEach(() => {
+    container.clearInstances();
+    rankingService = container.resolve(RankingService);
+  });
+
   it("should calculate rank with only score", () => {
     const item: NewsItem = {
       id: "1",
@@ -22,7 +30,7 @@ describe("calculateRank", () => {
       commentCount: 0,
     };
 
-    expect(calculateRank(item)).toBe(100);
+    expect(rankingService.calculateRank(item)).toBe(100);
   });
 
   it("should calculate rank with score and comments", () => {
@@ -36,7 +44,7 @@ describe("calculateRank", () => {
       commentCount: 30, // 30 * 0.3 = 9
     };
 
-    expect(calculateRank(item)).toBe(109);
+    expect(rankingService.calculateRank(item)).toBe(109);
   });
 
   it("should handle zero score and comments", () => {
@@ -50,7 +58,7 @@ describe("calculateRank", () => {
       commentCount: 0,
     };
 
-    expect(calculateRank(item)).toBe(0);
+    expect(rankingService.calculateRank(item)).toBe(0);
   });
 
   it("should handle missing score and commentCount", () => {
@@ -63,7 +71,7 @@ describe("calculateRank", () => {
       source: Source.TabNews,
     };
 
-    expect(calculateRank(item)).toBe(0);
+    expect(rankingService.calculateRank(item)).toBe(0);
   });
 
   it("should prioritize high score over many comments", () => {
@@ -87,8 +95,8 @@ describe("calculateRank", () => {
       commentCount: 200, // 100 + 60 = 160
     };
 
-    expect(calculateRank(highScore)).toBeGreaterThan(
-      calculateRank(manyComments),
+    expect(rankingService.calculateRank(highScore)).toBeGreaterThan(
+      rankingService.calculateRank(manyComments),
     );
   });
 
@@ -104,15 +112,21 @@ describe("calculateRank", () => {
     };
 
     // 50 + (100 * 0.3) = 50 + 30 = 80
-    expect(calculateRank(item)).toBe(80);
+    expect(rankingService.calculateRank(item)).toBe(80);
   });
 });
 
-describe("fetchTabNews", () => {
+describe("TabNewsService", () => {
+  let tabNewsService: TabNewsService;
+  let cacheService: CacheService;
+
   beforeEach(() => {
+    container.clearInstances();
     vi.clearAllMocks();
-    clearCache();
-    global.fetch = vi.fn();
+    cacheService = container.resolve(CacheService);
+    cacheService.clear();
+    tabNewsService = container.resolve(TabNewsService);
+    global.fetch = vi.fn() as any;
   });
 
   afterEach(() => {
@@ -139,7 +153,7 @@ describe("fetchTabNews", () => {
       json: async () => mockData,
     });
 
-    const result = await fetchTabNews();
+    const result = await tabNewsService.fetchNews();
 
     expect(result).toHaveLength(1);
     expect(result[0]).toEqual({
@@ -162,15 +176,57 @@ describe("fetchTabNews", () => {
       ok: false,
     });
 
-    await expect(fetchTabNews()).rejects.toThrow("Falha ao carregar TabNews");
+    await expect(tabNewsService.fetchNews()).rejects.toThrow(
+      "Falha ao carregar TabNews",
+    );
+  });
+
+  it("should fetch comments for a TabNews post", async () => {
+    const mockComments = [
+      {
+        id: "comment1",
+        parent_id: null,
+        owner_username: "commenter1",
+        body: "Great article!",
+        created_at: "2024-01-01T12:00:00Z",
+        children: [],
+        tabcoins: 5,
+      },
+    ];
+
+    (global.fetch as any).mockResolvedValueOnce({
+      ok: true,
+      json: async () => mockComments,
+    });
+
+    const result = await tabNewsService.fetchComments("testuser", "test-slug");
+
+    expect(result).toHaveLength(1);
+    expect(result[0]).toEqual(mockComments[0]);
+  });
+
+  it("should throw error on failed comments fetch", async () => {
+    (global.fetch as any).mockResolvedValueOnce({
+      ok: false,
+    });
+
+    await expect(
+      tabNewsService.fetchComments("testuser", "test-slug"),
+    ).rejects.toThrow("Falha ao carregar comentários");
   });
 });
 
-describe("fetchHackerNews", () => {
+describe("HackerNewsService", () => {
+  let hackerNewsService: HackerNewsService;
+  let cacheService: CacheService;
+
   beforeEach(() => {
+    container.clearInstances();
     vi.clearAllMocks();
-    clearCache();
-    global.fetch = vi.fn();
+    cacheService = container.resolve(CacheService);
+    cacheService.clear();
+    hackerNewsService = container.resolve(HackerNewsService);
+    global.fetch = vi.fn() as any;
   });
 
   afterEach(() => {
@@ -210,7 +266,7 @@ describe("fetchHackerNews", () => {
         json: async () => null,
       });
 
-    const result = await fetchHackerNews();
+    const result = await hackerNewsService.fetchNews();
 
     expect(result.length).toBeGreaterThan(0);
     expect(result[0]).toMatchObject({
@@ -259,7 +315,7 @@ describe("fetchHackerNews", () => {
         json: async () => mockItems[1],
       });
 
-    const result = await fetchHackerNews();
+    const result = await hackerNewsService.fetchNews();
 
     expect(result).toHaveLength(0);
   });
@@ -269,17 +325,23 @@ describe("fetchHackerNews", () => {
       ok: false,
     });
 
-    await expect(fetchHackerNews()).rejects.toThrow(
+    await expect(hackerNewsService.fetchNews()).rejects.toThrow(
       "Falha ao carregar IDs do Hacker News",
     );
   });
 });
 
-describe("fetchSmartMix", () => {
+describe("SmartMixService", () => {
+  let smartMixService: SmartMixService;
+  let cacheService: CacheService;
+
   beforeEach(() => {
+    container.clearInstances();
     vi.clearAllMocks();
-    clearCache();
-    global.fetch = vi.fn();
+    cacheService = container.resolve(CacheService);
+    cacheService.clear();
+    smartMixService = container.resolve(SmartMixService);
+    global.fetch = vi.fn() as any;
   });
 
   afterEach(() => {
@@ -350,7 +412,7 @@ describe("fetchSmartMix", () => {
         json: async () => mockHNItems[1],
       });
 
-    const result = await fetchSmartMix();
+    const result = await smartMixService.fetchMix();
 
     expect(result.length).toBeGreaterThan(0);
 
@@ -384,7 +446,7 @@ describe("fetchSmartMix", () => {
         ok: false,
       });
 
-    const result = await fetchSmartMix();
+    const result = await smartMixService.fetchMix();
 
     expect(result.length).toBeGreaterThan(0);
     expect(result.every((item) => item.source === Source.TabNews)).toBe(true);
@@ -399,54 +461,41 @@ describe("fetchSmartMix", () => {
         ok: false,
       });
 
-    await expect(fetchSmartMix()).rejects.toThrow(
+    await expect(smartMixService.fetchMix()).rejects.toThrow(
       "Não foi possível carregar nenhuma fonte de notícias.",
     );
   });
 });
 
-describe("fetchTabNewsComments", () => {
+describe("CacheService", () => {
+  let cacheService: CacheService;
+
   beforeEach(() => {
-    vi.clearAllMocks();
-    clearCache();
-    global.fetch = vi.fn();
+    container.clearInstances();
+    cacheService = container.resolve(CacheService);
+    cacheService.clear();
   });
 
-  afterEach(() => {
-    vi.restoreAllMocks();
+  it("should store and retrieve data from cache", () => {
+    const testData = { foo: "bar" };
+    cacheService.set("test-key", testData);
+
+    const retrieved = cacheService.get("test-key");
+    expect(retrieved).toEqual(testData);
   });
 
-  it("should fetch comments for a TabNews post", async () => {
-    const mockComments = [
-      {
-        id: "comment1",
-        parent_id: null,
-        owner_username: "commenter1",
-        body: "Great article!",
-        created_at: "2024-01-01T12:00:00Z",
-        children: [],
-        tabcoins: 5,
-      },
-    ];
-
-    (global.fetch as any).mockResolvedValueOnce({
-      ok: true,
-      json: async () => mockComments,
-    });
-
-    const result = await fetchTabNewsComments("testuser", "test-slug");
-
-    expect(result).toHaveLength(1);
-    expect(result[0]).toEqual(mockComments[0]);
+  it("should return null for non-existent keys", () => {
+    const result = cacheService.get("non-existent");
+    expect(result).toBeNull();
   });
 
-  it("should throw error on failed fetch", async () => {
-    (global.fetch as any).mockResolvedValueOnce({
-      ok: false,
-    });
+  it("should clear all cache entries", () => {
+    cacheService.set("key1", "value1");
+    cacheService.set("key2", "value2");
 
-    await expect(fetchTabNewsComments("testuser", "test-slug")).rejects.toThrow(
-      "Falha ao carregar comentários",
-    );
+    cacheService.clear();
+
+    expect(cacheService.get("key1")).toBeNull();
+    expect(cacheService.get("key2")).toBeNull();
   });
 });
