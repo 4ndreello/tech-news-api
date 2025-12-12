@@ -35,60 +35,26 @@ const setCache = <T>(key: string, data: T) => {
   };
 };
 
+export const clearCache = () => {
+  Object.keys(cache).forEach((key) => delete cache[key]);
+};
+
 // --- RANKING ALGORITHM ---
-// Enhanced formula that favors content in the 1-5 day sweet spot
-// Formula: ((Points + (Comments * 0.5) + 1) * FreshnessFactor) / (T + 2)^G
-// Factors:
-// 1. Points (Likes/Coins) count as 1.0
-// 2. Comments count as 0.5 (Engagement is important, but less than approval)
-// 3. FreshnessFactor: Multiplier that boosts 1-5 day old content, penalizes very recent/old
-// 4. Gravity = 1.2 (reduced from 1.4 for gentler time decay)
-const calculateRank = (item: NewsItem): number => {
-  const points = item.score || 0;
+// Simple engagement-based ranking
+// Formula: Score + (Comments * Weight)
+//
+// Score (points/tabcoins) represents approval/quality
+// Comments represent engagement and discussion value
+// Weight determines how much comments matter vs pure score
+export const calculateRank = (item: NewsItem): number => {
+  const score = item.score || 0;
   const comments = item.commentCount || 0;
 
-  const date = new Date(item.publishedAt);
-  const now = new Date();
+  // Comments weight: how much a comment is worth compared to a point
+  // 0.3 means ~3 comments = 1 point in value
+  const COMMENT_WEIGHT = 0.3;
 
-  const ageInHours = Math.max(
-    0,
-    (now.getTime() - date.getTime()) / (1000 * 60 * 60),
-  );
-  const ageInDays = ageInHours / 24;
-
-  // Weighted Score:
-  // Points (Likes/Coins) count as 1.0
-  // Comments count as 0.5 (Engagement is important, but less than approval)
-  const weightedScore = points + comments * 0.5;
-
-  // Freshness multiplier that favors 1-5 day old content
-  let freshnessFactor = 1.0;
-
-  if (ageInDays < 0.5) {
-    // Very recent (< 12h): slight penalty - content needs time to prove value
-    freshnessFactor = 0.6;
-  } else if (ageInDays < 1) {
-    // 12h-24h: ok, but not ideal yet
-    freshnessFactor = 0.85;
-  } else if (ageInDays <= 5) {
-    // Sweet spot: 1-5 days - BOOST!
-    // Maximum boost around 2-3 days (~1.5x)
-    const daysSinceOne = ageInDays - 1;
-    freshnessFactor = 1.0 + 0.5 * Math.exp(-daysSinceOne / 2);
-  } else if (ageInDays <= 10) {
-    // 5-10 days: starts to decline
-    freshnessFactor = 1.0 - (ageInDays - 5) * 0.1; // 10% drop per day
-  } else {
-    // > 10 days: faster decline
-    freshnessFactor = 0.5 / Math.pow(ageInDays - 9, 0.8);
-  }
-
-  // Reduced gravity for gentler time degradation
-  const gravity = 1.2;
-  const timePenalty = Math.pow(ageInHours + 2, gravity);
-
-  // Add 1 to weighted score to avoid zero/division issues
-  return ((weightedScore + 1) * freshnessFactor) / timePenalty;
+  return score + comments * COMMENT_WEIGHT;
 };
 
 export const fetchTabNews = async (): Promise<NewsItem[]> => {
