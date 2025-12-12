@@ -1,11 +1,16 @@
 {
   "name": "tech-news-api",
   "version": "1.0.0",
+  "type": "module",
   "description": "Backend API for TechNews aggregator using Hono + Bun",
   "main": "src/index.ts",
   "scripts": {
     "dev": "bun run --watch src/index.ts",
-    "start": "bun run src/index.ts"
+    "start": "bun run src/index.ts",
+    "test": "vitest",
+    "test:ui": "vitest --ui",
+    "test:run": "vitest run",
+    "test:coverage": "vitest run --coverage"
   },
   "dependencies": {
     "hono": "^4.6.14",
@@ -14,6 +19,8 @@
   },
   "devDependencies": {
     "@types/bun": "latest",
-    "typescript": "^5.9.3"
+    "@vitest/ui": "^4.0.15",
+    "typescript": "^5.9.3",
+    "vitest": "^4.0.15"
   }
 }
