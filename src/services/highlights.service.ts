@@ -1,5 +1,4 @@
 import { inject, singleton } from "tsyringe";
-import { logger } from "../logger";
 import type { Highlight } from "../types";
 import { CacheKey } from "../types";
 import { CacheService } from "./cache.service";
@@ -7,6 +6,7 @@ import { HighlightRankingService } from "./highlight-ranking.service";
 import { RedditService } from "./reddit.service";
 import { GeminiService } from "./gemini.service";
 import { LinkScraperService } from "./link-scraper.service";
+import { LoggerService } from "./logger.service";
 import type { RedditPost } from "../types";
 
 @singleton()
@@ -21,6 +21,7 @@ export class HighlightsService {
     private rankingService: HighlightRankingService,
     @inject(GeminiService) private geminiService: GeminiService,
     @inject(LinkScraperService) private linkScraperService: LinkScraperService,
+    @inject(LoggerService) private logger: LoggerService,
   ) {}
 
   async fetchHighlights(): Promise<Highlight[]> {
@@ -42,14 +43,14 @@ export class HighlightsService {
         const summaryCacheKey = `highlight_iasummary_${h.id}`;
         let aiSummary = this.cacheService.get<string>(summaryCacheKey);
         if (aiSummary) {
-          logger.info("Resumo IA Gemini recuperado do cache", {
+          this.logger.info("gemini AI summary retrieved from cache", {
             id: h.id,
             title: h.title,
             cacheKey: summaryCacheKey,
             aiSummary,
           });
         } else {
-          logger.info("Resumo IA Gemini NÃO encontrado no cache, gerando...", {
+          this.logger.info("gemini AI summary not found in cache, generating...", {
             id: h.id,
             title: h.title,
             cacheKey: summaryCacheKey,
@@ -79,8 +80,8 @@ export class HighlightsService {
             }
 
             if (relatedLink) {
-              logger.info(
-                "Fazendo scraping do link relacionado para enriquecer contexto IA",
+              this.logger.info(
+                "scraping related link to enrich AI context",
                 {
                   id: h.id,
                   relatedLink,
@@ -95,14 +96,14 @@ export class HighlightsService {
 
             aiSummary = await this.geminiService.summarize(textToSummarize);
             this.cacheService.set(summaryCacheKey, aiSummary);
-            logger.info("Resumo IA Gemini gerado e salvo no cache", {
+            this.logger.info("gemini AI summary generated and saved to cache", {
               id: h.id,
               title: h.title,
               cacheKey: summaryCacheKey,
               aiSummary,
             });
           } catch (err) {
-            logger.error("Erro ao gerar resumo IA Gemini", {
+            this.logger.error("error generating gemini AI summary", {
               id: h.id,
               title: h.title,
               error: err instanceof Error ? err.message : String(err),
@@ -120,7 +121,7 @@ export class HighlightsService {
 
     // Cache para 30 minutos (como antes)
     this.cacheService.set(CacheKey.Highlights, highlightsWithIASummary);
-    logger.info("Highlights array salvo no cache", {
+    this.logger.info("highlights array saved to cache", {
       count: highlightsWithIASummary.length,
     });
 
@@ -136,32 +137,32 @@ export class HighlightsService {
   }> {
     // 1. FETCH - Get posts from Reddit
     const redditPosts = await this.redditService.fetchHotPosts(50);
-    logger.info("Fetched posts from Reddit", {
+    this.logger.info("fetched posts from reddit", {
       totalFetched: redditPosts.length,
     });
 
     // 2. FILTER - Apply filters
     let filtered = this.redditService.filterRecent(redditPosts);
-    logger.info("After recent filter", { count: filtered.length });
+    this.logger.info("after recent filter", { count: filtered.length });
 
     filtered = this.redditService.filterByEngagement(filtered);
-    logger.info("After engagement filter", { count: filtered.length });
+    this.logger.info("after engagement filter", { count: filtered.length });
 
     filtered = this.redditService.filterSpam(filtered);
-    logger.info("After spam filter", { count: filtered.length });
+    this.logger.info("after spam filter", { count: filtered.length });
 
     // 3. AI PROCESSING - Normalize and calculate relevance
     const highlights = filtered.map((post) =>
       this.rankingService.normalizeRedditPost(post),
     );
-    logger.info("After normalization (highlights created)", {
+    this.logger.info("after normalization (highlights created)", {
       count: highlights.length,
     });
 
     // 4. RANK & SELECT - Sort by combined score and take top 10
     const ranked = this.rankingService.rankHighlights(highlights);
     const topHighlights = ranked.slice(0, this.MAX_HIGHLIGHTS);
-    logger.info("After ranking and slicing top highlights", {
+    this.logger.info("after ranking and slicing top highlights", {
       topCount: topHighlights.length,
     });
 
@@ -174,14 +175,14 @@ export class HighlightsService {
     // Ensure we always return something (fallback)
     if (topHighlights.length === 0) {
       // If filtering is too strict, return top posts with lower threshold
-      logger.warn("No highlights after filtering; using fallback posts", {
+      this.logger.warn("no highlights after filtering; using fallback posts", {
         fetched: redditPosts.length,
       });
       const fallbackPosts = redditPosts.slice(0, this.MAX_HIGHLIGHTS);
       const fallback = fallbackPosts.map((post) =>
         this.rankingService.normalizeRedditPost(post),
       );
-      logger.info("Fallback highlights created", { count: fallback.length });
+      this.logger.info("fallback highlights created", { count: fallback.length });
       return { highlights: fallback, redditPostsMap };
     }
 

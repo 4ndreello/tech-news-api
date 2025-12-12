@@ -58,7 +58,7 @@ async function checkGitHub(): Promise<ServiceStatusType> {
     if (indicator === "major") return ServiceStatusType.Degraded;
     return ServiceStatusType.Down;
   } catch (error) {
-    logger.warn("GitHub status check failed", { error: String(error) });
+    logger.warn("github status check failed", { error: String(error) });
     return ServiceStatusType.Down;
   }
 }
@@ -85,7 +85,7 @@ async function checkCloudflare(): Promise<ServiceStatusType> {
     if (indicator === "major") return ServiceStatusType.Degraded;
     return ServiceStatusType.Down;
   } catch (error) {
-    logger.warn("Cloudflare status check failed", { error: String(error) });
+    logger.warn("cloudflare status check failed", { error: String(error) });
     return ServiceStatusType.Down;
   }
 }
@@ -112,7 +112,7 @@ async function checkVercel(): Promise<ServiceStatusType> {
     if (indicator === "major") return ServiceStatusType.Degraded;
     return ServiceStatusType.Down;
   } catch (error) {
-    logger.warn("Vercel status check failed", { error: String(error) });
+    logger.warn("vercel status check failed", { error: String(error) });
     return ServiceStatusType.Down;
   }
 }
@@ -141,7 +141,7 @@ async function checkServiceByPing(
  * Busca o status de todos os serviços
  */
 async function fetchServiceStatuses(): Promise<ServicesStatusResponse> {
-  logger.info("Fetching service statuses...");
+  logger.info("fetching service statuses...");
 
   const timestamp = new Date().toISOString();
 
@@ -188,7 +188,7 @@ async function fetchServiceStatuses(): Promise<ServicesStatusResponse> {
     },
   ];
 
-  logger.info("Service statuses fetched successfully", {
+  logger.info("service statuses fetched successfully", {
     operational: services.filter((s) => s.status === "operational").length,
     degraded: services.filter((s) => s.status === "degraded").length,
     down: services.filter((s) => s.status === "down").length,
@@ -208,7 +208,7 @@ async function updateCache(): Promise<void> {
     cachedStatus = await fetchServiceStatuses();
     lastFetch = Date.now();
   } catch (error) {
-    logger.error("Failed to update service status cache", {
+    logger.error("failed to update service status cache", {
       error: error instanceof Error ? error.message : String(error),
       stack: error instanceof Error ? error.stack : undefined,
     });
@@ -220,11 +220,11 @@ async function updateCache(): Promise<void> {
  */
 export function startBackgroundUpdates(): void {
   if (backgroundTaskId) {
-    logger.warn("Background update task already running");
+    logger.warn("background update task already running");
     return;
   }
 
-  logger.info("Starting service status background updates", {
+  logger.info("starting service status background updates", {
     interval: `${BACKGROUND_UPDATE_INTERVAL / 1000}s`,
   });
 
@@ -244,7 +244,7 @@ export function stopBackgroundUpdates(): void {
   if (backgroundTaskId) {
     clearInterval(backgroundTaskId);
     backgroundTaskId = null;
-    logger.info("Stopped service status background updates");
+    logger.info("stopped service status background updates");
   }
 }
 
@@ -256,14 +256,14 @@ export async function getServicesStatus(): Promise<ServicesStatusResponse> {
 
   // Retorna cache se válido
   if (cachedStatus && now - lastFetch < CACHE_TTL) {
-    logger.info("Returning cached service status", {
+    logger.info("returning cached service status", {
       age: `${Math.round((now - lastFetch) / 1000)}s`,
     });
     return cachedStatus;
   }
 
   // Cache inválido ou não existe, busca novos dados
-  logger.info("Cache expired or missing, fetching fresh service status");
+  logger.info("cache expired or missing, fetching fresh service status");
 
   try {
     cachedStatus = await fetchServiceStatuses();
@@ -272,7 +272,7 @@ export async function getServicesStatus(): Promise<ServicesStatusResponse> {
   } catch (error) {
     // Se falhar e houver cache antigo, retorna ele
     if (cachedStatus) {
-      logger.warn("Failed to fetch new status, returning stale cache", {
+      logger.warn("failed to fetch new status, returning stale cache", {
         age: `${Math.round((now - lastFetch) / 1000)}s`,
       });
       return cachedStatus;

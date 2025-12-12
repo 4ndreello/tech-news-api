@@ -1,6 +1,6 @@
-import { singleton } from "tsyringe";
-import { logger } from "../logger";
+import { inject, singleton } from "tsyringe";
 import type { RedditPost, RedditResponse } from "../types";
+import { LoggerService } from "./logger.service";
 
 @singleton()
 export class RedditService {
@@ -13,20 +13,22 @@ export class RedditService {
     "typescript",
   ];
 
+  constructor(@inject(LoggerService) private logger: LoggerService) {}
+
   async fetchHotPosts(limit = 50): Promise<RedditPost[]> {
     const allPosts: RedditPost[] = [];
 
     for (const subreddit of this.SUBREDDITS) {
       try {
         const posts = await this.fetchSubreddit(subreddit, limit);
-        logger.info(`Fetched ${posts.length} posts from r/${subreddit}`, {
+        this.logger.info(`fetched ${posts.length} posts from r/${subreddit}`, {
           subreddit,
           fetched: posts.length,
         });
         allPosts.push(...posts);
       } catch (error) {
         // Use structured logger instead of console.error
-        logger.error(`Error fetching r/${subreddit}`, {
+        this.logger.error(`error fetching r/${subreddit}`, {
           subreddit,
           error: error instanceof Error ? error.message : String(error),
         });
@@ -34,7 +36,7 @@ export class RedditService {
       }
     }
 
-    logger.info("Completed fetching subreddits", {
+    this.logger.info("completed fetching subreddits", {
       totalFetched: allPosts.length,
       subredditsQueried: this.SUBREDDITS.length,
     });
@@ -60,7 +62,7 @@ export class RedditService {
     }
 
     const data: RedditResponse = (await response.json()) as RedditResponse;
-    logger.info(`r/${subreddit} returned ${data.data.children.length} posts`, {
+    this.logger.info(`r/${subreddit} returned ${data.data.children.length} posts`, {
       subreddit,
       count: data.data.children.length,
     });
@@ -81,7 +83,7 @@ export class RedditService {
       return score >= MIN_SCORE && comments >= MIN_COMMENTS && !isNSFW;
     });
 
-    logger.info("filterByEngagement result", {
+    this.logger.info("filterByEngagement result", {
       before: posts.length,
       after: filtered.length,
       minScore: MIN_SCORE,

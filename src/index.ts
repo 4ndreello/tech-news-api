@@ -55,7 +55,7 @@ app.get("/api/news/tabnews", async (c) => {
     return c.json(news);
   } catch (error) {
     const logger = c.get("logger");
-    logger.error("Error fetching TabNews", {
+    logger.error("error fetching TabNews", {
       error: error instanceof Error ? error.message : String(error),
       stack: error instanceof Error ? error.stack : undefined,
     });
@@ -77,7 +77,7 @@ app.get("/api/news/hackernews", async (c) => {
     return c.json(news);
   } catch (error) {
     const logger = c.get("logger");
-    logger.error("Error fetching Hacker News", {
+    logger.error("error fetching Hacker News", {
       error: error instanceof Error ? error.message : String(error),
       stack: error instanceof Error ? error.stack : undefined,
     });
@@ -119,7 +119,7 @@ app.get("/api/news/mix", async (c) => {
     return c.json({ items, nextCursor });
   } catch (error) {
     const logger = c.get("logger");
-    logger.error("Error fetching Smart Mix", {
+    logger.error("error fetching Smart Mix", {
       error: error instanceof Error ? error.message : String(error),
       stack: error instanceof Error ? error.stack : undefined,
     });
@@ -164,7 +164,7 @@ app.get("/api/highlights", async (c) => {
     return c.json({ items, nextCursor });
   } catch (error) {
     const logger = c.get("logger");
-    logger.error("Error fetching Highlights", {
+    logger.error("error fetching Highlights", {
       error: error instanceof Error ? error.message : String(error),
       stack: error instanceof Error ? error.stack : undefined,
     });
@@ -195,7 +195,7 @@ app.get("/api/comments/:username/:slug", async (c) => {
     return c.json(comments);
   } catch (error) {
     const logger = c.get("logger");
-    logger.error("Error fetching comments", {
+    logger.error("error fetching comments", {
       error: error instanceof Error ? error.message : String(error),
       stack: error instanceof Error ? error.stack : undefined,
     });
@@ -218,7 +218,7 @@ app.get("/api/services/status", async (c) => {
     return c.json(status);
   } catch (error) {
     const logger = c.get("logger");
-    logger.error("Error fetching services status", {
+    logger.error("error fetching services status", {
       error: error instanceof Error ? error.message : String(error),
       stack: error instanceof Error ? error.stack : undefined,
     });
@@ -254,12 +254,12 @@ app.notFound((c) => {
 app.onError((err, c) => {
   const contextLogger = c.get("logger");
   if (contextLogger) {
-    contextLogger.error("Server error", {
+    contextLogger.error("server error", {
       error: err.message,
       stack: err.stack,
     });
   } else {
-    logger.error("Server error (no context)", {
+    logger.error("server error (no context)", {
       error: err.message,
       stack: err.stack,
     });
@@ -272,7 +272,7 @@ const port = process.env.PORT || 8080;
 // Start background task for service status monitoring
 startBackgroundUpdates();
 
-logger.info(`TechNews API rodando em http://localhost:${port}`);
+logger.info(`techNews API running on http://localhost:${port}`);
 
 export default {
   port,

@@ -1,6 +1,7 @@
 import type { Context, Next } from "hono";
 import { createLogger } from "../logger";
 import { randomUUID } from "crypto";
+import { setRequestContext } from "../context/request-context";
 
 // Extend Hono context with logger
 declare module "hono" {
@@ -17,6 +18,9 @@ declare module "hono" {
 export const loggingMiddleware = async (c: Context, next: Next) => {
   // Gera correlation ID único para rastrear a requisição
   const correlationId = c.req.header("x-correlation-id") || randomUUID();
+
+  // Configura o AsyncLocalStorage com o correlation ID
+  setRequestContext(correlationId);
 
   // Adiciona correlation ID e logger ao contexto
   c.set("correlationId", correlationId);
@@ -37,7 +41,7 @@ export const loggingMiddleware = async (c: Context, next: Next) => {
   const startTime = Date.now();
   const method = c.req.method;
 
-  logger.info(`INCOMING REQUEST ${method} ${path}`, {
+  logger.info(`incoming request ${method} ${path}`, {
     context: "HttpRequest",
     httpRequest: {
       requestMethod: method,
@@ -53,7 +57,7 @@ export const loggingMiddleware = async (c: Context, next: Next) => {
   const duration = Date.now() - startTime;
   const status = c.res.status;
 
-  logger.info(`OUTGOING RESPONSE ${status} - ${duration}ms`, {
+  logger.info(`outgoing response ${status} - ${duration}ms`, {
     context: "HttpRequest",
     httpResponse: {
       status,
