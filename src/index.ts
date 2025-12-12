@@ -22,7 +22,11 @@ app.use("/*", loggingMiddleware);
 app.use(
   "/*",
   cors({
-    origin: ["http://localhost:3000", "http://0.0.0.0:3000"],
+    origin: [
+      "http://localhost:3000",
+      "http://0.0.0.0:3000",
+      "https://tech-news-front-361874528796.southamerica-east1.run.app",
+    ],
     credentials: true,
   }),
 );
