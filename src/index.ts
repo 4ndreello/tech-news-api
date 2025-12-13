@@ -26,6 +26,7 @@ app.use(
       "http://localhost:3000",
       "http://0.0.0.0:3000",
       "https://tech-news-front-361874528796.southamerica-east1.run.app",
+      "https://news.andreello.dev.br",
     ],
     credentials: true,
   }),
