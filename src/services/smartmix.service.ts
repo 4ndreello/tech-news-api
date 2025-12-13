@@ -42,8 +42,8 @@ export class SmartMixService {
     );
 
     // Take top 20 from each *after* our custom freshness sorting
-    const topTab = sortedTab.slice(0, 20);
-    const topHn = sortedHn.slice(0, 20);
+    const topTab = sortedTab.slice(0, 40);
+    const topHn = sortedHn.slice(0, 40);
 
     const mixed: NewsItem[] = [];
     const maxLength = Math.max(topTab.length, topHn.length);
