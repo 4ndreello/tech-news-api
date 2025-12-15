@@ -6,6 +6,7 @@ import { CacheService } from "./cache.service";
 @singleton()
 export class HackerNewsService {
   private readonly HN_BASE_URL = "https://hacker-news.firebaseio.com/v0";
+  private fetchLock: Promise<NewsItem[]> | null = null;
 
   constructor(@inject(CacheService) private cacheService: CacheService) {}
 
@@ -13,28 +14,40 @@ export class HackerNewsService {
     const cached = this.cacheService.get<NewsItem[]>(CacheKey.HackerNews);
     if (cached) return cached;
 
-    // 1. Get Top Stories IDs
+    if (this.fetchLock) {
+      return this.fetchLock;
+    }
+
+    this.fetchLock = this.doFetch();
+
+    try {
+      const result = await this.fetchLock;
+      return result;
+    } finally {
+      this.fetchLock = null;
+    }
+  }
+
+  private async doFetch(): Promise<NewsItem[]> {
     const idsRes = await fetch(`${this.HN_BASE_URL}/topstories.json`);
     if (!idsRes.ok) throw new Error("Falha ao carregar IDs do Hacker News");
     const ids = (await idsRes.json()) as number[];
 
-    // 2. Fetch details for top 30 items in parallel
     const topIds = ids.slice(0, 100);
 
     const itemPromises = topIds.map((id) =>
-      fetch(`${this.HN_BASE_URL}/item/${id}.json`).then((res) => res.json())
+      fetch(`${this.HN_BASE_URL}/item/${id}.json`).then((res) => res.json()),
     );
 
     const itemsRaw = (await Promise.all(itemPromises)) as HackerNewsItem[];
 
-    // 3. Map and Filter
     const mapped = itemsRaw
       .filter(
         (item) =>
           item &&
           item.title &&
           !item.title.startsWith("[dead]") &&
-          !item.title.startsWith("[flagged]")
+          !item.title.startsWith("[flagged]"),
       )
       .map((item) => ({
         id: String(item.id),
