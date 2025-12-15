@@ -13,13 +13,13 @@ import type { ArticleWithAuthor, RedditPost, TweetWithAuthor } from "../types";
 
 @singleton()
 export class HighlightsService {
-  private readonly MAX_HIGHLIGHTS = 10;
   private readonly IA_SUMMARY_TTL = 24 * 60 * 60 * 1000; // 24h
+  private fetchLock: Promise<Highlight[]> | null = null;
 
   constructor(
     @inject(CacheService) private cacheService: CacheService,
-    @inject(RedditService) private redditService: RedditService,
-    @inject(TwitterService) private twitterService: TwitterService,
+    // @inject(RedditService) private redditService: RedditService,
+    // @inject(TwitterService) private twitterService: TwitterService,
     @inject(DevToService) private devToService: DevToService,
     @inject(HighlightRankingService)
     private rankingService: HighlightRankingService,
@@ -29,54 +29,58 @@ export class HighlightsService {
   ) {}
 
   async fetchHighlights(): Promise<Highlight[]> {
-    // Check cache first
     const cached = this.cacheService.get<Highlight[]>(CacheKey.Highlights);
     if (cached) {
       return cached;
     }
 
-    // Fetch and process highlights from Twitter and Dev.to in parallel
-    const [
-      { highlights: twitterHighlights, tweetsMap },
-      { highlights: devtoHighlights, articlesMap },
-    ] = await Promise.all([
-      this.processHighlightsWithTwitter(),
-      this.processHighlightsWithDevTo(),
-    ]);
+    if (this.fetchLock) {
+      return this.fetchLock;
+    }
 
-    // Merge highlights from both sources
-    const allHighlights = [
-      ...twitterHighlights,
-      ...devtoHighlights.map((h) =>
-        h.id.startsWith("dt-") && h.source === "twitter"
-          ? ({ ...h, source: "devto" } as Highlight)
-          : h,
-      ),
-    ];
+    this.fetchLock = this.doFetchAndRank();
+
+    try {
+      const result = await this.fetchLock;
+      return result;
+    } finally {
+      this.fetchLock = null;
+    }
+  }
+
+  private async doFetchAndRank(): Promise<Highlight[]> {
+    const { highlights: devtoHighlights } =
+      await this.processHighlightsWithDevTo();
+
     this.logger.info("merged highlights from all sources", {
-      twitter: twitterHighlights.length,
-      devto: devtoHighlights.length,
-      total: allHighlights.length,
+      devtoHighlights: devtoHighlights.length,
     });
 
-    // Rank and select top highlights
-    const ranked = this.rankingService.rankHighlights(allHighlights);
-    const topHighlights = ranked.slice(0, this.MAX_HIGHLIGHTS);
+    const ranked = this.rankingService.rankHighlights(devtoHighlights);
+    const top45 = ranked.slice(0, 45);
     this.logger.info("after final ranking and slicing", {
-      topCount: topHighlights.length,
+      topCount: top45.length,
     });
 
-    // IA SUMMARIZATION (Gemini) + cache por highlight enriquecido com scraping do link relacionado
-    const highlightsWithIASummary = await Promise.all(
-      topHighlights.map(async (h) => {
+    this.cacheService.set(CacheKey.Highlights, top45);
+    this.logger.info("highlights array saved to cache", {
+      count: top45.length,
+    });
+
+    return top45;
+  }
+
+  async enrichWithAI(highlights: Highlight[]): Promise<Highlight[]> {
+    return Promise.all(
+      highlights.map(async (h) => {
         const summaryCacheKey = `highlight_iasummary_${h.id}`;
         let aiSummary = this.cacheService.get<string>(summaryCacheKey);
+
         if (aiSummary) {
           this.logger.info("gemini AI summary retrieved from cache", {
             id: h.id,
             title: h.title,
             cacheKey: summaryCacheKey,
-            aiSummary,
           });
         } else {
           this.logger.info(
@@ -88,53 +92,13 @@ export class HighlightsService {
             },
           );
           try {
-            // Enriquecer contexto com scraping do link relacionado
-            let textToSummarize =
-              h.summary && !h.summary.includes(h.title)
-                ? `${h.title}\n${h.summary}`
-                : h.title;
-
-            let relatedLink = "";
-
-            // Extrair link baseado na fonte
-            if (h.id.startsWith("tw-")) {
-              // Twitter: buscar link do tweet
-              const tweetWithAuthor: TweetWithAuthor | undefined =
-                tweetsMap[h.id.replace(/^tw-/, "")];
-              if (tweetWithAuthor?.tweet.entities?.urls) {
-                const firstUrl = tweetWithAuthor.tweet.entities.urls[0];
-                if (firstUrl?.expanded_url) {
-                  relatedLink = firstUrl.expanded_url;
-                }
-              }
-            } else if (h.id.startsWith("dt-")) {
-              // Dev.to: usar URL do artigo
-              const articleWithAuthor: ArticleWithAuthor | undefined =
-                articlesMap[h.id.replace(/^dt-/, "")];
-              if (articleWithAuthor?.article.url) {
-                relatedLink = articleWithAuthor.article.url;
-              }
-            }
-
-            if (relatedLink) {
-              this.logger.info("scraping related link to enrich AI context", {
-                id: h.id,
-                relatedLink,
-              });
-              const scraped =
-                await this.linkScraperService.extractMainText(relatedLink);
-              if (scraped && scraped.length > 40) {
-                textToSummarize += `\n\nContexto do link relacionado:\n${scraped}`;
-              }
-            }
-
+            const textToSummarize = this.buildTextForAI(h);
             aiSummary = await this.geminiService.summarize(textToSummarize);
             this.cacheService.set(summaryCacheKey, aiSummary);
             this.logger.info("gemini AI summary generated and saved to cache", {
               id: h.id,
               title: h.title,
               cacheKey: summaryCacheKey,
-              aiSummary,
             });
           } catch (err) {
             this.logger.error("error generating gemini AI summary", {
@@ -145,84 +109,85 @@ export class HighlightsService {
             aiSummary = "";
           }
         }
-        // Sempre prioriza o resumo IA, mas se falhar mantém o summary original
+
         return {
           ...h,
           summary: aiSummary && aiSummary.length > 0 ? aiSummary : h.summary,
         };
       }),
     );
+  }
 
-    // Cache para 30 minutos (como antes)
-    this.cacheService.set(CacheKey.Highlights, highlightsWithIASummary);
-    this.logger.info("highlights array saved to cache", {
-      count: highlightsWithIASummary.length,
-    });
+  private buildTextForAI(highlight: Highlight): string {
+    let text =
+      highlight.summary && !highlight.summary.includes(highlight.title)
+        ? `${highlight.title}\n${highlight.summary}`
+        : highlight.title;
 
-    return highlightsWithIASummary;
+    return text;
   }
 
   /**
    * Retorna highlights do Twitter e um map de Tweets originais para enriquecer contexto IA.
    */
-  private async processHighlightsWithTwitter(): Promise<{
-    highlights: Highlight[];
-    tweetsMap: Record<string, TweetWithAuthor>;
-  }> {
-    // 1. FETCH - Get tweets from Twitter (reduced to avoid rate limits)
-    const tweets = await this.twitterService.fetchRecentTweets(20);
-    this.logger.info("fetched tweets from twitter", {
-      totalFetched: tweets.length,
-    });
+  // private async processHighlightsWithTwitter(): Promise<{
+  //   highlights: Highlight[];
+  //   tweetsMap: Record<string, TweetWithAuthor>;
+  // }> {
+  //   // 1. FETCH - Get tweets from Twitter (reduced to avoid rate limits)
+  //   const tweets = await this.twitterService.fetchRecentTweets(20);
+  //   this.logger.info("fetched tweets from twitter", {
+  //     totalFetched: tweets.length,
+  //   });
 
-    // 2. FILTER - Apply filters
-    let filtered = this.twitterService.filterRecent(tweets);
-    this.logger.info("after recent filter", { count: filtered.length });
+  //   // 2. FILTER - Apply filters
+  //   let filtered = this.twitterService.filterRecent(tweets);
+  //   this.logger.info("after recent filter", { count: filtered.length });
 
-    filtered = this.twitterService.filterByEngagement(filtered);
-    this.logger.info("after engagement filter", { count: filtered.length });
+  //   filtered = this.twitterService.filterByEngagement(filtered);
+  //   this.logger.info("after engagement filter", { count: filtered.length });
 
-    filtered = this.twitterService.filterSpam(filtered);
-    this.logger.info("after spam filter", { count: filtered.length });
+  //   filtered = this.twitterService.filterSpam(filtered);
+  //   this.logger.info("after spam filter", { count: filtered.length });
 
-    // 3. AI PROCESSING - Normalize and calculate relevance
-    const highlights = filtered.map((tweetWithAuthor) =>
-      this.rankingService.normalizeTwitterTweet(
-        tweetWithAuthor.tweet,
-        tweetWithAuthor.username,
-      ),
-    );
-    this.logger.info("after normalization (highlights created)", {
-      count: highlights.length,
-    });
+  //   // 3. AI PROCESSING - Normalize and calculate relevance
+  //   const highlights = filtered.map((tweetWithAuthor) =>
+  //     this.rankingService.normalizeTwitterTweet(
+  //       tweetWithAuthor.tweet,
+  //       tweetWithAuthor.username,
+  //     ),
+  //   );
+  //   this.logger.info("after normalization (highlights created)", {
+  //     count: highlights.length,
+  //   });
 
-    // Map de Tweets por id (sem o prefixo 'tw-')
-    const tweetsMap: Record<string, TweetWithAuthor> = {};
-    tweets.forEach((tweetWithAuthor) => {
-      tweetsMap[tweetWithAuthor.tweet.id] = tweetWithAuthor;
-    });
+  //   // Map de Tweets por id (sem o prefixo 'tw-')
+  //   const tweetsMap: Record<string, TweetWithAuthor> = {};
+  //   tweets.forEach((tweetWithAuthor) => {
+  //     tweetsMap[tweetWithAuthor.tweet.id] = tweetWithAuthor;
+  //   });
 
-    // Ensure we always return something (fallback)
-    if (highlights.length === 0) {
-      // If filtering is too strict, return top tweets with lower threshold
-      this.logger.warn("no highlights after filtering; using fallback tweets", {
-        fetched: tweets.length,
-      });
-      const fallbackTweets = tweets.slice(0, this.MAX_HIGHLIGHTS);
-      const fallback = fallbackTweets.map((tweetWithAuthor) =>
-        this.rankingService.normalizeTwitterTweet(
-          tweetWithAuthor.tweet,
-          tweetWithAuthor.username,
-        ),
-      );
-      this.logger.info("fallback highlights created", {
-        count: fallback.length,
-      });
-      return { highlights: fallback, tweetsMap };
-    }
+  //   // Ensure we always return something (fallback)
+  //   if (highlights.length === 0) {
+  //     // If filtering is too strict, return top tweets with lower threshold
+  //     this.logger.warn("no highlights after filtering; using fallback tweets", {
+  //       fetched: tweets.length,
+  //     });
+  //     const fallbackTweets = tweets.slice(0, this.MAX_HIGHLIGHTS);
+  //     const fallback = fallbackTweets.map((tweetWithAuthor) =>
+  //       this.rankingService.normalizeTwitterTweet(
+  //         tweetWithAuthor.tweet,
+  //         tweetWithAuthor.username,
+  //       ),
+  //     );
+  //     this.logger.info("fallback highlights created", {
+  //       count: fallback.length,
+  //     });
+  //     return { highlights: fallback, tweetsMap };
+  //   }
 
-    return { highlights, tweetsMap };
-  }
+  //   return { highlights, tweetsMap };
+  // }
 
   /**
    * Retorna highlights do Dev.to e um map de Articles originais para enriquecer contexto IA.
@@ -231,44 +196,26 @@ export class HighlightsService {
     highlights: Highlight[];
     articlesMap: Record<string, ArticleWithAuthor>;
   }> {
-    // 1. FETCH - Get articles from Dev.to
-    const articles = await this.devToService.fetchRecentArticles(30);
-    this.logger.info("fetched articles from Dev.to", {
+    const articles = await this.devToService.fetchRecentArticles(100);
+    this.logger.info("fetched articles from dev.to", {
       totalFetched: articles.length,
     });
 
-    // 2. FILTER - Apply filters
-    let filtered = this.devToService.filterRecent(articles);
-    this.logger.info("after recent filter (Dev.to)", {
-      count: filtered.length,
-    });
+    const filtered = this.devToService.filterArticleReadingTime(articles);
 
-    filtered = this.devToService.filterByEngagement(filtered);
-    this.logger.info("after engagement filter (Dev.to)", {
-      count: filtered.length,
-    });
-
-    filtered = this.devToService.filterQuality(filtered);
-    this.logger.info("after quality filter (Dev.to)", {
-      count: filtered.length,
-    });
-
-    // 3. AI PROCESSING - Normalize and calculate relevance
     const highlights = filtered.map((articleWithAuthor) =>
       this.rankingService.normalizeDevToArticle(
         articleWithAuthor.article,
         articleWithAuthor.username,
       ),
     );
-    this.logger.info("after normalization (Dev.to highlights created)", {
-      count: highlights.length,
-    });
 
-    // Map de Articles por id (sem o prefixo 'dt-')
     const articlesMap: Record<string, ArticleWithAuthor> = {};
     articles.forEach((articleWithAuthor) => {
       articlesMap[String(articleWithAuthor.article.id)] = articleWithAuthor;
     });
+
+    this.logger.info("after dev.to filter", { count: highlights.length });
 
     return { highlights, articlesMap };
   }
@@ -290,13 +237,12 @@ export class HighlightsService {
     );
 
     const ranked = this.rankingService.rankHighlights(highlights);
-    const topHighlights = ranked.slice(0, this.MAX_HIGHLIGHTS);
 
     const redditPostsMap: Record<string, RedditPost> = {};
     redditPosts.forEach((post) => {
       redditPostsMap[post.data.id] = post;
     });
 
-    return { highlights: topHighlights, redditPostsMap };
+    return { highlights: ranked, redditPostsMap };
   }
 }

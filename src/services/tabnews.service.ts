@@ -6,15 +6,29 @@ import { CacheService } from "./cache.service";
 @singleton()
 export class TabNewsService {
   private readonly TABNEWS_API = "https://www.tabnews.com.br/api/v1/contents";
+  private fetchLock: Promise<NewsItem[]> | null = null;
 
-  constructor(
-    @inject(CacheService) private cacheService: CacheService,
-  ) {}
+  constructor(@inject(CacheService) private cacheService: CacheService) {}
 
   async fetchNews(): Promise<NewsItem[]> {
     const cached = this.cacheService.get<NewsItem[]>(CacheKey.TabNews);
     if (cached) return cached;
 
+    if (this.fetchLock) {
+      return this.fetchLock;
+    }
+
+    this.fetchLock = this.doFetch();
+
+    try {
+      const result = await this.fetchLock;
+      return result;
+    } finally {
+      this.fetchLock = null;
+    }
+  }
+
+  private async doFetch(): Promise<NewsItem[]> {
     const res = await fetch(`${this.TABNEWS_API}?strategy=relevant`);
     if (!res.ok) throw new Error("Falha ao carregar TabNews");
     const data = (await res.json()) as TabNewsItem[];

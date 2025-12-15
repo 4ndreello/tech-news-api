@@ -68,7 +68,7 @@ export class HighlightRankingService {
 
     // Keyword matching (max 40 points)
     const matchedKeywords = this.TECH_KEYWORDS.filter((keyword) =>
-      content.includes(keyword.toLowerCase()),
+      content.includes(keyword.toLowerCase())
     );
     score += Math.min(matchedKeywords.length * 5, 40);
 
@@ -173,7 +173,7 @@ export class HighlightRankingService {
 
     // Keyword matching (max 40 points)
     const matchedKeywords = this.TECH_KEYWORDS.filter((keyword) =>
-      content.includes(keyword.toLowerCase()),
+      content.includes(keyword.toLowerCase())
     );
     score += Math.min(matchedKeywords.length * 5, 40);
 
@@ -286,7 +286,7 @@ export class HighlightRankingService {
       id: `dt-${article.id}`,
       title: article.title,
       summary: summary,
-      source: "devto", // Dev.to source
+      source: "devto",
       author: username,
       url: article.url,
       engagement: {
