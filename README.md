@@ -1,382 +1,331 @@
 # TechNews API
 
-Backend API para o agregador TechNews, construído com **Hono** + **Bun**.
+Backend service that aggregates tech news from multiple sources (TabNews, Hacker News, Dev.to) with AI-curated highlights. Built with Hono and Bun for high performance.
 
-Este servidor expõe endpoints REST que agregam notícias de tecnologia do **TabNews** e **Hacker News**, aplicando um algoritmo inteligente de ranking baseado em pontos, comentários e tempo de publicação.
+## Overview
 
-## 🚀 Tecnologias
+This API provides a unified feed that combines news articles from different tech communities, applies intelligent ranking algorithms, and uses Google Gemini AI to generate curated highlights. The service is designed to be stateless, horizontally scalable, and optimized for low latency.
 
-- **Bun** - Runtime JavaScript ultrarrápido
-- **Hono** - Framework web minimalista e performático
-- **TypeScript** - Tipagem estática
+## Tech Stack
 
-## 📋 Funcionalidades
+- **Bun** - Fast JavaScript runtime
+- **Hono** - Lightweight web framework
+- **TypeScript** - Static typing
+- **TSyringe** - Dependency injection with decorators
+- **Pino** - Structured logging
+- **Google Gemini AI** - Content analysis and summarization
+- **Vitest** - Testing framework
 
-- ✅ Busca de notícias do TabNews
-- ✅ Busca de notícias do Hacker News
-- ✅ Smart Mix - Intercalação inteligente de ambas as fontes
-- ✅ Sistema de cache (5 minutos)
-- ✅ Algoritmo de ranking customizado
-- ✅ Busca de comentários de posts do TabNews
-- ✅ CORS configurado para frontend
-- ✅ Tratamento robusto de erros
+## Quick Start
 
-## 🧮 Algoritmo de Ranking
+### Prerequisites
 
-```
-Rank = (Points + (Comments × 0.5) + 1) / (T + 2)^G
-```
+- [Bun](https://bun.sh/) 1.0+
+- Google Gemini API key (for AI features)
 
-Onde:
-- **Points**: Pontos/coins/upvotes do post
-- **Comments**: Número de comentários (peso 0.5)
-- **T**: Idade do post em horas
-- **G**: Gravidade = 1.4 (fator de degradação temporal)
-
-Este algoritmo prioriza conteúdo recente com alto engajamento, mas ainda dá espaço para posts mais antigos com muita relevância.
-
-## 📦 Instalação
-
-### Pré-requisitos
-
-- [Bun](https://bun.sh/) instalado (versão 1.0+)
-
-### Passos
+### Installation
 
 ```bash
-# Clone ou navegue até o diretório
-cd tech-news-api
-
-# Instale as dependências
+# Install dependencies
 bun install
 
-# (Opcional) Configure variáveis de ambiente
+# Copy environment variables
 cp .env.example .env
+
+# Configure your .env file with:
+# - GEMINI_API_KEY (required for highlights)
+# - PORT (default: 8080)
 ```
 
-## 🏃 Executando o Servidor
-
-### Modo Desenvolvimento (com hot reload)
+### Running the Server
 
 ```bash
+# Development mode (hot reload, port 3001)
 bun run dev
-```
 
-### Modo Produção
-
-```bash
+# Production mode (port 8080)
 bun start
 ```
 
-O servidor estará disponível em: **http://localhost:3001**
+Server runs on:
+- Development: http://localhost:3001
+- Production: http://localhost:8080
 
-## 📚 Endpoints da API
+## API Endpoints
 
-### Root - Informações da API
+### Main Feed (Recommended)
+
+```http
+GET /api/feed?limit=10&after=<cursor>
+```
+
+Unified feed with cursor-based pagination. Interleaves news and AI-curated highlights in a 5:1 ratio.
+
+**Query Parameters:**
+- `limit` - Items per page (1-10, default: 10)
+- `after` - Cursor for next page (ID of last item from previous response)
+
+**Response:**
+```json
+{
+  "items": [
+    {
+      "id": "unique-id",
+      "title": "Article title",
+      "author": "username",
+      "score": 42,
+      "publishedAt": "2025-12-15T10:00:00.000Z",
+      "source": "TabNews",
+      "url": "https://...",
+      "commentCount": 15
+    }
+  ],
+  "nextCursor": "id-for-next-page"
+}
+```
+
+### Legacy Endpoints
+
+```http
+GET /api/news/tabnews          # All TabNews articles
+GET /api/news/hackernews       # All Hacker News articles
+GET /api/comments/:username/:slug  # TabNews post comments
+GET /api/services/status       # External services health check
+```
+
+### Root Endpoint
 
 ```http
 GET /
 ```
 
-**Resposta:**
-```json
-{
-  "message": "TechNews API - Powered by Hono + Bun",
-  "version": "1.0.0",
-  "endpoints": {
-    "tabnews": "/api/news/tabnews",
-    "hackernews": "/api/news/hackernews",
-    "mix": "/api/news/mix",
-    "comments": "/api/comments/:username/:slug"
-  }
-}
-```
+Returns API information and available endpoints.
 
----
+## Architecture
 
-### TabNews - Buscar notícias do TabNews
+### Service Layer
 
-```http
-GET /api/news/tabnews
-```
+**Data Fetching Services**
+- `TabNewsService` - Fetches articles from TabNews API
+- `HackerNewsService` - Fetches stories from Hacker News API
+- `DevToService` - Fetches articles from Dev.to API
 
-**Resposta:**
-```json
-{
-  "success": true,
-  "data": [
-    {
-      "id": "abc123",
-      "title": "Como construir uma API com Bun",
-      "author": "usuario",
-      "score": 42,
-      "publishedAt": "2025-12-11T10:30:00.000Z",
-      "source": "TabNews",
-      "slug": "como-construir-uma-api-com-bun",
-      "owner_username": "usuario",
-      "body": "# Conteúdo do post...",
-      "sourceUrl": null,
-      "commentCount": 15
-    }
-  ],
-  "count": 30
-}
-```
+**Ranking Services**
+- `RankingService` - Time-decayed engagement ranking for news
+- `HighlightRankingService` - AI relevance-based ranking for highlights
 
----
+**Aggregation Services**
+- `SmartMixService` - Combines TabNews + Hacker News with intelligent interleaving
+- `HighlightsService` - Generates AI-curated highlights from Dev.to
 
-### Hacker News - Buscar notícias do Hacker News
+**Infrastructure Services**
+- `CacheService` - In-memory caching with TTL
+- `GeminiService` - Google Gemini AI integration
+- `LoggerService` - Request-scoped logging with correlation IDs
 
-```http
-GET /api/news/hackernews
-```
+### Dependency Injection
 
-**Resposta:**
-```json
-{
-  "success": true,
-  "data": [
-    {
-      "id": "38589210",
-      "title": "Show HN: My new project",
-      "author": "username",
-      "score": 250,
-      "publishedAt": "2025-12-11T12:00:00.000Z",
-      "source": "HackerNews",
-      "url": "https://example.com",
-      "commentCount": 89
-    }
-  ],
-  "count": 30
-}
-```
-
----
-
-### Smart Mix - Intercalação inteligente
-
-```http
-GET /api/news/mix
-```
-
-Retorna até 40 notícias (20 de cada fonte), ranqueadas e intercaladas para máxima diversidade.
-
-**Resposta:**
-```json
-{
-  "success": true,
-  "data": [
-    { "source": "TabNews", ... },
-    { "source": "HackerNews", ... },
-    { "source": "TabNews", ... },
-    { "source": "HackerNews", ... }
-  ],
-  "count": 40
-}
-```
-
----
-
-### Comentários - Buscar comentários de um post do TabNews
-
-```http
-GET /api/comments/:username/:slug
-```
-
-**Parâmetros:**
-- `username`: Nome do usuário autor do post
-- `slug`: Slug do post
-
-**Exemplo:**
-```http
-GET /api/comments/filipedeschamps/meu-post-incrivel
-```
-
-**Resposta:**
-```json
-{
-  "success": true,
-  "data": [
-    {
-      "id": "comment-1",
-      "parent_id": null,
-      "owner_username": "usuario",
-      "body": "Ótimo post!",
-      "created_at": "2025-12-11T13:00:00.000Z",
-      "children": [],
-      "tabcoins": 5
-    }
-  ],
-  "count": 10
-}
-```
-
----
-
-## 🔄 Integração com Frontend
-
-Para integrar este backend com o frontend React existente em `../tech-news`, você precisa atualizar o arquivo `services/api.ts`:
-
-### Exemplo de integração
+Uses TSyringe for dependency injection:
 
 ```typescript
-// services/api.ts (Frontend)
-
-const API_BASE_URL = 'http://localhost:3001/api';
-
-export const fetchTabNews = async (): Promise<NewsItem[]> => {
-  const res = await fetch(`${API_BASE_URL}/news/tabnews`);
-  if (!res.ok) throw new Error('Falha ao carregar TabNews');
-  const data = await res.json();
-  return data.data;
-};
-
-export const fetchHackerNews = async (): Promise<NewsItem[]> => {
-  const res = await fetch(`${API_BASE_URL}/news/hackernews`);
-  if (!res.ok) throw new Error('Falha ao carregar Hacker News');
-  const data = await res.json();
-  return data.data;
-};
-
-export const fetchSmartMix = async (): Promise<NewsItem[]> => {
-  const res = await fetch(`${API_BASE_URL}/news/mix`);
-  if (!res.ok) throw new Error('Falha ao carregar notícias');
-  const data = await res.json();
-  return data.data;
-};
-
-export const fetchTabNewsComments = async (username: string, slug: string): Promise<Comment[]> => {
-  const res = await fetch(`${API_BASE_URL}/comments/${username}/${slug}`);
-  if (!res.ok) throw new Error('Falha ao carregar comentários');
-  const data = await res.json();
-  return data.data;
-};
+@singleton()
+export class MyService {
+  constructor(
+    @inject(CacheService) private cache: CacheService,
+    @inject(LoggerService) private logger: LoggerService
+  ) {}
+}
 ```
 
-## ⚙️ Configuração de CORS
+All services are singletons and resolved via `container.resolve(ServiceClass)` in route handlers.
 
-O servidor já está configurado para aceitar requisições das seguintes origens:
+### Ranking Algorithm
 
-- `http://localhost:3000`
-- `http://0.0.0.0:3000`
+News items are ranked using time-decayed engagement:
 
-Para adicionar mais origens, edite o arquivo `src/index.ts`:
-
-```typescript
-app.use('/*', cors({
-  origin: ['http://localhost:3000', 'https://seu-dominio.com'],
-  credentials: true,
-}));
+```
+score = (points + comments × 0.3) × timePenalty
 ```
 
-## 🧪 Testando a API
+**Time Penalty:**
+- Posts < 6 hours old: Reduced score (too recent)
+- Posts 6 hours to 5 days old: Full score (sweet spot)
+- Posts > 5 days old: Exponential decay with gravity factor of 1.8
 
-### Usando curl
+This balances fresh content with high-quality older posts.
+
+### Caching Strategy
+
+In-memory cache with automatic expiration:
+
+- **News articles**: 5 minutes TTL
+- **AI highlights**: 10 minutes TTL
+- Cache clears on server restart (ephemeral)
+- Pattern: Check cache → Fetch on miss → Store → Return
+
+### Logging
+
+Dual-mode logging with Pino:
+
+**Development:**
+- Colorized output with pino-pretty
+- Human-readable timestamps
+
+**Production:**
+- Structured JSON logs
+- GCP Cloud Logging format
+- Correlation IDs for distributed tracing
+- Severity levels mapped to GCP standards
+
+### Request Context
+
+Uses AsyncLocalStorage for request tracing:
+- Each request gets a unique correlation ID
+- IDs propagate through all async operations
+- Enables distributed tracing across services
+
+## Testing
 
 ```bash
-# Testar endpoint root
-curl http://localhost:3001/
-
-# Buscar TabNews
-curl http://localhost:3001/api/news/tabnews
-
-# Buscar Hacker News
-curl http://localhost:3001/api/news/hackernews
-
-# Buscar Smart Mix
-curl http://localhost:3001/api/news/mix
-
-# Buscar comentários
-curl http://localhost:3001/api/comments/filipedeschamps/meu-post
+bun test              # Watch mode
+bun run test:ui       # UI mode
+bun run test:run      # Run once
+bun run test:coverage # Coverage report
 ```
 
-### Usando navegador
+Tests use Vitest with TypeScript. Remember to:
+- Import "reflect-metadata" at top of test files
+- Clear DI container between tests: `container.clearInstances()`
+- Mock external APIs with `vi.fn()` and `vi.spyOn()`
 
-Acesse diretamente:
-- http://localhost:3001/
-- http://localhost:3001/api/news/mix
+## Environment Variables
 
-## 📊 Cache
+Create a `.env` file:
 
-O servidor implementa um sistema de cache em memória:
+```bash
+PORT=8080                      # Server port
+GEMINI_API_KEY=your_key_here  # Google Gemini API (required for highlights)
+TWITTER_BEARER_TOKEN=token    # Optional: Twitter API
+TWITTER_API_KEY=key           # Optional: Twitter API
+TWITTER_API_SECRET=secret     # Optional: Twitter API
+```
 
-- **Duração**: 5 minutos
-- **Limpeza**: Automática ao expirar
-- **Benefícios**: Reduz chamadas às APIs externas e melhora performance
+## CORS Configuration
 
-## 🐛 Tratamento de Erros
+Allowed origins:
+- `http://localhost:3000` (local development)
+- `http://0.0.0.0:3000`
+- `https://tech-news-front-361874528796.southamerica-east1.run.app` (Cloud Run)
+- `https://news.andreello.dev.br` (production)
 
-Todos os endpoints retornam respostas padronizadas em caso de erro:
+Configure in `src/index.ts` if you need additional origins.
+
+## Error Handling
+
+All endpoints return standardized error responses:
 
 ```json
 {
   "success": false,
-  "error": "Mensagem de erro descritiva"
+  "error": "Descriptive error message"
 }
 ```
 
-Status HTTP apropriados são usados:
-- `400` - Bad Request (parâmetros inválidos)
-- `404` - Not Found (endpoint não existe)
-- `500` - Internal Server Error (erro no servidor ou APIs externas)
+HTTP status codes:
+- `400` - Bad Request
+- `404` - Not Found
+- `500` - Internal Server Error
 
-## 🚀 Deploy
+Errors are logged with correlation IDs and stack traces for debugging.
 
-### Deploy no Bun.sh (Recomendado)
-
-```bash
-bun build src/index.ts --outdir ./dist --target bun
-```
-
-### Docker (Opcional)
-
-Crie um `Dockerfile`:
-
-```dockerfile
-FROM oven/bun:1
-
-WORKDIR /app
-
-COPY package.json bun.lockb ./
-RUN bun install --frozen-lockfile
-
-COPY . .
-
-EXPOSE 3001
-
-CMD ["bun", "start"]
-```
-
-Build e execute:
-
-```bash
-docker build -t tech-news-api .
-docker run -p 3001:3001 tech-news-api
-```
-
-## 📝 Estrutura do Projeto
+## Project Structure
 
 ```
 tech-news-api/
 ├── src/
-│   ├── index.ts      # Servidor Hono e rotas
-│   ├── service.ts    # Lógica de negócio e fetching
-│   └── types.ts      # Interfaces TypeScript
-├── package.json      # Dependências e scripts
-├── tsconfig.json     # Configuração TypeScript
-├── .gitignore        # Arquivos ignorados pelo Git
-├── .env.example      # Exemplo de variáveis de ambiente
-└── README.md         # Documentação
+│   ├── index.ts                    # Server entry point, routes
+│   ├── logger.ts                   # Pino logger configuration
+│   ├── types.ts                    # TypeScript types
+│   ├── context/
+│   │   └── request-context.ts      # AsyncLocalStorage for correlation IDs
+│   ├── middleware/
+│   │   └── logging.ts              # Request logging middleware
+│   └── services/
+│       ├── cache.service.ts        # In-memory caching
+│       ├── tabnews.service.ts      # TabNews API client
+│       ├── hackernews.service.ts   # Hacker News API client
+│       ├── devto.service.ts        # Dev.to API client
+│       ├── ranking.service.ts      # News ranking algorithm
+│       ├── smartmix.service.ts     # News aggregation
+│       ├── highlights.service.ts   # AI highlights generation
+│       └── gemini.service.ts       # Google Gemini AI client
+├── package.json
+├── tsconfig.json
+├── .env.example
+└── README.md
 ```
 
-## 🤝 Contribuindo
+## Deployment
 
-Sinta-se livre para abrir issues ou pull requests!
+### Docker
 
-## 📄 Licença
+```dockerfile
+FROM oven/bun:1
+WORKDIR /app
+COPY package.json bun.lockb ./
+RUN bun install --frozen-lockfile
+COPY . .
+EXPOSE 8080
+CMD ["bun", "start"]
+```
+
+Build and run:
+
+```bash
+docker build -t tech-news-api .
+docker run -p 8080:8080 tech-news-api
+```
+
+### Google Cloud Run
+
+The application is optimized for Cloud Run:
+- Runs on port 8080 (default)
+- Structured logging for GCP Cloud Logging
+- Stateless design (horizontally scalable)
+- Health checks via `/api/services/status`
+
+## Common Development Tasks
+
+### Adding a New News Source
+
+1. Create service in `src/services/<source>.service.ts` with `@singleton()` decorator
+2. Implement `fetchNews(): Promise<NewsItem[]>` method
+3. Add source to `Source` enum in `src/types.ts`
+4. Update `SmartMixService` to include new source
+5. Add route in `src/index.ts`
+6. Update cache key in `CacheKey` enum
+
+### Modifying Ranking Parameters
+
+Edit `src/services/ranking.service.ts`:
+- `COMMENT_WEIGHT` - Comment importance vs score (default: 0.3)
+- `MIN_IDEAL_HOURS` - Minimum age for full score (default: 6)
+- `MAX_IDEAL_HOURS` - Maximum age before decay (default: 120)
+- `GRAVITY` - Decay rate for old posts (default: 1.8)
+
+### Adding a New Endpoint
+
+1. Add route in `src/index.ts` using `app.get()` or `app.post()`
+2. Resolve services via `container.resolve(ServiceClass)`
+3. Access logger via `c.get("logger")`
+4. Wrap logic in try-catch
+5. Return JSON via `c.json(data, statusCode)`
+6. Update root endpoint and 404 handler
+
+## License
 
 MIT
 
 ---
 
-Feito com ❤️ usando Bun + Hono
+Built with Hono and Bun

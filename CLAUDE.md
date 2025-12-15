@@ -102,17 +102,18 @@ Services follow a clear separation of concerns:
 
 ### API Endpoints & Pagination
 
-All endpoints use **cursor-based pagination** (except legacy endpoints):
-- `GET /api/news/mix?limit=10&after=<id>` - Paginated smart mix
-- `GET /api/highlights?limit=10&after=<id>` - Paginated highlights
+Main endpoint with **cursor-based pagination**:
+- `GET /api/feed?limit=10&after=<id>` - Unified feed (news + highlights interleaved)
 - Response format: `{ items: [...], nextCursor: "id" | null }`
-- `limit` parameter: 1-50 (default: 10)
+- `limit` parameter: 1-10 (default: 10)
 - `after` parameter: ID of last item from previous page
+- Feed interleaves news and highlights in 5:1 ratio (5 news items, then 1 highlight)
 
 Legacy endpoints (no pagination):
 - `GET /api/news/tabnews` - All TabNews articles
 - `GET /api/news/hackernews` - All Hacker News articles
 - `GET /api/comments/:username/:slug` - TabNews comments for a post
+- `GET /api/services/status` - External services health status
 
 ### Caching Strategy
 
