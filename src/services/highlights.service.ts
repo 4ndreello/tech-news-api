@@ -14,6 +14,7 @@ import type { ArticleWithAuthor, RedditPost, TweetWithAuthor } from "../types";
 @singleton()
 export class HighlightsService {
   private readonly IA_SUMMARY_TTL = 24 * 60 * 60 * 1000; // 24h
+  private fetchLock: Promise<Highlight[]> | null = null;
 
   constructor(
     @inject(CacheService) private cacheService: CacheService,
@@ -28,44 +29,58 @@ export class HighlightsService {
   ) {}
 
   async fetchHighlights(): Promise<Highlight[]> {
-    // Check cache first
     const cached = this.cacheService.get<Highlight[]>(CacheKey.Highlights);
     if (cached) {
       return cached;
     }
 
-    // Fetch and process highlights from Twitter and Dev.to in parallel
-    const [
-      // { highlights: twitterHighlights, tweetsMap },
-      { highlights: devtoHighlights, articlesMap },
-    ] = await Promise.all([
-      // this.processHighlightsWithTwitter(),
-      this.processHighlightsWithDevTo(),
-    ]);
+    if (this.fetchLock) {
+      return this.fetchLock;
+    }
 
-    // Merge highlights from both sources
+    this.fetchLock = this.doFetchAndRank();
+
+    try {
+      const result = await this.fetchLock;
+      return result;
+    } finally {
+      this.fetchLock = null;
+    }
+  }
+
+  private async doFetchAndRank(): Promise<Highlight[]> {
+    const { highlights: devtoHighlights } =
+      await this.processHighlightsWithDevTo();
+
     this.logger.info("merged highlights from all sources", {
       devtoHighlights: devtoHighlights.length,
     });
 
-    // Rank and select top highlights
-    const rankend = this.rankingService.rankHighlights(devtoHighlights);
-    const rankedPortion = rankend.slice(0, 45);
+    const ranked = this.rankingService.rankHighlights(devtoHighlights);
+    const top45 = ranked.slice(0, 45);
     this.logger.info("after final ranking and slicing", {
-      topCount: rankedPortion.length,
+      topCount: top45.length,
     });
 
-    // IA SUMMARIZATION (Gemini) + cache por highlight enriquecido com scraping do link relacionado
-    const highlightsWithIASummary = await Promise.all(
-      rankedPortion.map(async (h) => {
+    this.cacheService.set(CacheKey.Highlights, top45);
+    this.logger.info("highlights array saved to cache", {
+      count: top45.length,
+    });
+
+    return top45;
+  }
+
+  async enrichWithAI(highlights: Highlight[]): Promise<Highlight[]> {
+    return Promise.all(
+      highlights.map(async (h) => {
         const summaryCacheKey = `highlight_iasummary_${h.id}`;
         let aiSummary = this.cacheService.get<string>(summaryCacheKey);
+
         if (aiSummary) {
           this.logger.info("gemini AI summary retrieved from cache", {
             id: h.id,
             title: h.title,
             cacheKey: summaryCacheKey,
-            aiSummary,
           });
         } else {
           this.logger.info(
@@ -77,53 +92,13 @@ export class HighlightsService {
             },
           );
           try {
-            // Enriquecer contexto com scraping do link relacionado
-            let textToSummarize =
-              h.summary && !h.summary.includes(h.title)
-                ? `${h.title}\n${h.summary}`
-                : h.title;
-
-            let relatedLink = "";
-
-            // Extrair link baseado na fonte
-            if (h.id.startsWith("tw-")) {
-              // // Twitter: buscar link do tweet
-              // const tweetWithAuthor: TweetWithAuthor | undefined =
-              //   tweetsMap[h.id.replace(/^tw-/, "")];
-              // if (tweetWithAuthor?.tweet.entities?.urls) {
-              //   const firstUrl = tweetWithAuthor.tweet.entities.urls[0];
-              //   if (firstUrl?.expanded_url) {
-              //     relatedLink = firstUrl.expanded_url;
-              //   }
-              // }
-            } else if (h.id.startsWith("dt-")) {
-              // Dev.to: usar URL do artigo
-              const articleWithAuthor: ArticleWithAuthor | undefined =
-                articlesMap[h.id.replace(/^dt-/, "")];
-              if (articleWithAuthor?.article.url) {
-                relatedLink = articleWithAuthor.article.url;
-              }
-            }
-
-            if (relatedLink) {
-              this.logger.info("scraping related link to enrich AI context", {
-                id: h.id,
-                relatedLink,
-              });
-              const scraped =
-                await this.linkScraperService.extractMainText(relatedLink);
-              if (scraped && scraped.length > 40) {
-                textToSummarize += `\n\nContexto do link relacionado:\n${scraped}`;
-              }
-            }
-
+            const textToSummarize = this.buildTextForAI(h);
             aiSummary = await this.geminiService.summarize(textToSummarize);
             this.cacheService.set(summaryCacheKey, aiSummary);
             this.logger.info("gemini AI summary generated and saved to cache", {
               id: h.id,
               title: h.title,
               cacheKey: summaryCacheKey,
-              aiSummary,
             });
           } catch (err) {
             this.logger.error("error generating gemini AI summary", {
@@ -134,20 +109,22 @@ export class HighlightsService {
             aiSummary = "";
           }
         }
-        // Sempre prioriza o resumo IA, mas se falhar mantém o summary original
+
         return {
           ...h,
           summary: aiSummary && aiSummary.length > 0 ? aiSummary : h.summary,
         };
       }),
     );
+  }
 
-    this.cacheService.set(CacheKey.Highlights, highlightsWithIASummary);
-    this.logger.info("highlights array saved to cache", {
-      count: highlightsWithIASummary.length,
-    });
+  private buildTextForAI(highlight: Highlight): string {
+    let text =
+      highlight.summary && !highlight.summary.includes(highlight.title)
+        ? `${highlight.title}\n${highlight.summary}`
+        : highlight.title;
 
-    return highlightsWithIASummary;
+    return text;
   }
 
   /**
