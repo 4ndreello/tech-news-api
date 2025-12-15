@@ -41,8 +41,6 @@ app.get("/", (c) => {
     endpoints: {
       tabnews: "/api/news/tabnews",
       hackernews: "/api/news/hackernews",
-      mix: "/api/news/mix",
-      highlights: "/api/highlights",
       feed: "/api/feed",
       comments: "/api/comments/:username/:slug",
       servicesStatus: "/api/services/status",
@@ -190,8 +188,6 @@ app.notFound((c) => {
         "GET /",
         "GET /api/news/tabnews",
         "GET /api/news/hackernews",
-        "GET /api/news/mix",
-        "GET /api/highlights",
         "GET /api/feed",
         "GET /api/comments/:username/:slug",
         "GET /api/services/status",
