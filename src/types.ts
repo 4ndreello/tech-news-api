@@ -8,6 +8,7 @@ export enum CacheKey {
   HackerNews = "hackernews",
   TabNewsComments = "comments",
   Highlights = "highlights",
+  SmartMix = "smartmix",
 }
 
 export interface Comment {
