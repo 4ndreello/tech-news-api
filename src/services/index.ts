@@ -9,3 +9,4 @@ export { TwitterService } from "./twitter.service";
 export { DevToService } from "./devto.service";
 export { HighlightRankingService } from "./highlight-ranking.service";
 export { HighlightsService } from "./highlights.service";
+export { FeedService } from "./feed.service";

@@ -9,7 +9,7 @@ export class SmartMixService {
   constructor(
     @inject(TabNewsService) private tabNewsService: TabNewsService,
     @inject(HackerNewsService) private hackerNewsService: HackerNewsService,
-    @inject(RankingService) private rankingService: RankingService,
+    @inject(RankingService) private rankingService: RankingService
   ) {}
 
   async fetchMix(): Promise<NewsItem[]> {
@@ -33,25 +33,24 @@ export class SmartMixService {
     const sortedTab = [...tabNews].sort(
       (a, b) =>
         this.rankingService.calculateRank(b) -
-        this.rankingService.calculateRank(a),
+        this.rankingService.calculateRank(a)
     );
     const sortedHn = [...hn].sort(
       (a, b) =>
         this.rankingService.calculateRank(b) -
-        this.rankingService.calculateRank(a),
+        this.rankingService.calculateRank(a)
     );
 
-    // Take top 20 from each *after* our custom freshness sorting
-    const topTab = sortedTab.slice(0, 40);
-    const topHn = sortedHn.slice(0, 40);
+    const topTab = sortedTab.slice(0, 100);
+    const topHn = sortedHn.slice(0, 100);
 
     const mixed: NewsItem[] = [];
     const maxLength = Math.max(topTab.length, topHn.length);
 
     // Interleave the results to ensure diversity
     for (let i = 0; i < maxLength; i++) {
-      if (i < topTab.length) mixed.push(topTab[i]);
-      if (i < topHn.length) mixed.push(topHn[i]);
+      if (i < topTab.length && topTab[i]) mixed.push(topTab[i]);
+      if (i < topHn.length && topHn[i]) mixed.push(topHn[i]);
     }
 
     return mixed;

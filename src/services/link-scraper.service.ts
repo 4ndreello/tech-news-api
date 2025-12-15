@@ -1,4 +1,5 @@
-import { singleton } from "tsyringe";
+import { inject, singleton } from "tsyringe";
+import { CacheService } from "./cache.service";
 
 /**
  * Serviço utilitário para extrair o texto principal de uma página web.
@@ -9,12 +10,19 @@ import { singleton } from "tsyringe";
 export class LinkScraperService {
   private readonly MAX_TEXT_LENGTH = 1200; // Limite de caracteres do texto extraído
 
+  constructor(@inject(CacheService) private cacheService: CacheService) {}
+
   /**
    * Faz scraping simples do link e retorna um texto resumido do conteúdo principal.
    * @param url URL do blog/artigo
    * @returns Texto extraído (ou string vazia se falhar)
    */
   async extractMainText(url: string): Promise<string> {
+    const cachedText = this.cacheService.get<string>(url);
+    if (cachedText) {
+      return cachedText;
+    }
+
     try {
       const response = await fetch(url, {
         headers: {
@@ -73,6 +81,10 @@ export class LinkScraperService {
 
       // Remove excesso de espaços
       context = context.replace(/\s{3,}/g, " ").trim();
+
+      if (context) {
+        this.cacheService.set(url, context);
+      }
 
       return context;
     } catch (err) {

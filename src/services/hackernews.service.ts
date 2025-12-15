@@ -19,10 +19,10 @@ export class HackerNewsService {
     const ids = (await idsRes.json()) as number[];
 
     // 2. Fetch details for top 30 items in parallel
-    const topIds = ids.slice(0, 30);
+    const topIds = ids.slice(0, 100);
 
     const itemPromises = topIds.map((id) =>
-      fetch(`${this.HN_BASE_URL}/item/${id}.json`).then((res) => res.json()),
+      fetch(`${this.HN_BASE_URL}/item/${id}.json`).then((res) => res.json())
     );
 
     const itemsRaw = (await Promise.all(itemPromises)) as HackerNewsItem[];
@@ -34,7 +34,7 @@ export class HackerNewsService {
           item &&
           item.title &&
           !item.title.startsWith("[dead]") &&
-          !item.title.startsWith("[flagged]"),
+          !item.title.startsWith("[flagged]")
       )
       .map((item) => ({
         id: String(item.id),

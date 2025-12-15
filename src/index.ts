@@ -4,6 +4,7 @@ import "reflect-metadata";
 import { container } from "tsyringe";
 import { logger } from "./logger";
 import { loggingMiddleware } from "./middleware/logging";
+import { FeedService } from "./services/feed.service";
 import { HackerNewsService } from "./services/hackernews.service";
 import { HighlightsService } from "./services/highlights.service";
 import { SmartMixService } from "./services/smartmix.service";
@@ -42,6 +43,7 @@ app.get("/", (c) => {
       hackernews: "/api/news/hackernews",
       mix: "/api/news/mix",
       highlights: "/api/highlights",
+      feed: "/api/feed",
       comments: "/api/comments/:username/:slug",
       servicesStatus: "/api/services/status",
     },
@@ -94,87 +96,34 @@ app.get("/api/news/hackernews", async (c) => {
   }
 });
 
-// get smart mix (interleaved, ranked articles from both sources) with cursor pagination
-app.get("/api/news/mix", async (c) => {
+// Get unified feed (interleaved news + highlights with 5:1 ratio)
+app.get("/api/feed", async (c) => {
   try {
-    const smartMixService = container.resolve(SmartMixService);
-    const allNews = await smartMixService.fetchMix();
+    const feedService = container.resolve(FeedService);
 
-    // Pagination params
-    const limit = Math.max(1, Math.min(Number(c.req.query("limit")) || 10, 50));
+    // Validar limit (1-10, default 10)
+    const limit = Math.max(1, Math.min(Number(c.req.query("limit")) || 10, 10));
+
+    // Pegar cursor opcional (único, para lista intercalada)
     const after = c.req.query("after");
 
-    let startIdx = 0;
-    if (after) {
-      const idx = allNews.findIndex((n) => n.id === after);
-      if (idx >= 0) {
-        startIdx = idx + 1;
-      }
-    }
-    const items = allNews.slice(startIdx, startIdx + limit);
-    const nextCursor =
-      items.length === limit && startIdx + limit < allNews.length
-        ? items[items.length - 1].id
-        : null;
+    // Buscar feed intercalado
+    const feed = await feedService.fetchFeed(limit, after);
 
-    return c.json({ items, nextCursor });
-  } catch (error) {
-    const logger = c.get("logger");
-    logger.error("error fetching Smart Mix", {
-      error: error instanceof Error ? error.message : String(error),
-      stack: error instanceof Error ? error.stack : undefined,
-    });
-    return c.json(
-      {
-        error:
-          error instanceof Error ? error.message : "Failed to load news mix",
-      },
-      500,
-    );
-  }
-});
-
-// get AI-curated highlights from Reddit with cursor pagination
-app.get("/api/highlights", async (c) => {
-  try {
-    const highlightsService = container.resolve(HighlightsService);
-    const allHighlights = await highlightsService.fetchHighlights();
-
-    // Pagination params
-    const limit = Math.max(1, Math.min(Number(c.req.query("limit")) || 10, 50));
-    const after = c.req.query("after");
-
-    let startIdx = 0;
-    if (after) {
-      const idx = allHighlights.findIndex((h) => h.id === after);
-      if (idx >= 0) {
-        startIdx = idx + 1;
-      }
-    }
-
-    const items = allHighlights.slice(startIdx, startIdx + limit);
-    const nextCursor =
-      items.length === limit && startIdx + limit < allHighlights.length
-        ? items[items.length - 1].id
-        : null;
-
-    // Set cache headers (30min)
-    c.header("Cache-Control", "public, max-age=1800");
+    // Headers
+    c.header("Cache-Control", "public, max-age=300");
     c.header("X-AI-Processed", "true");
 
-    return c.json({ items, nextCursor });
+    return c.json(feed);
   } catch (error) {
     const logger = c.get("logger");
-    logger.error("error fetching Highlights", {
+    logger.error("error fetching unified feed", {
       error: error instanceof Error ? error.message : String(error),
       stack: error instanceof Error ? error.stack : undefined,
     });
     return c.json(
       {
-        error:
-          error instanceof Error
-            ? error.message
-            : "Erro ao carregar highlights",
+        error: error instanceof Error ? error.message : "Failed to load feed",
       },
       500,
     );
@@ -243,6 +192,7 @@ app.notFound((c) => {
         "GET /api/news/hackernews",
         "GET /api/news/mix",
         "GET /api/highlights",
+        "GET /api/feed",
         "GET /api/comments/:username/:slug",
         "GET /api/services/status",
       ],

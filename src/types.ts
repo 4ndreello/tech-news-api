@@ -217,3 +217,14 @@ export interface ArticleWithAuthor {
   article: DevToArticle;
   username: string;
 }
+
+// Union type com discriminator 'type' para feed unificado
+export type FeedItem =
+  | ({ type: "news" } & NewsItem)
+  | ({ type: "highlight" } & Highlight);
+
+// Response do endpoint /api/feed
+export interface FeedResponse {
+  items: FeedItem[];
+  nextCursor: string | null;
+}

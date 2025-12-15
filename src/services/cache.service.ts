@@ -6,7 +6,7 @@ import { CacheKey } from "../types";
 export class CacheService {
   private cache: Record<string, CacheEntry<any>> = {};
   private readonly CACHE_DURATION = 5 * 60 * 1000; // 5 minutes
-  private readonly HIGHLIGHTS_CACHE_DURATION = 30 * 60 * 1000; // 30 minutes
+  private readonly HIGHLIGHTS_CACHE_DURATION = 10 * 60 * 1000; // 10 minutes
 
   get<T>(key: string): T | null {
     const entry = this.cache[key];
@@ -34,10 +34,7 @@ export class CacheService {
   }
 
   private getCacheDuration(key: string): number {
-    // Use 30 minutes for highlights, 5 minutes for everything else
-    if (key === CacheKey.Highlights) {
-      return this.HIGHLIGHTS_CACHE_DURATION;
-    }
+    if (key === CacheKey.Highlights) return this.HIGHLIGHTS_CACHE_DURATION;
     return this.CACHE_DURATION;
   }
 }
