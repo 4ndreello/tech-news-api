@@ -1,6 +1,7 @@
-import { singleton } from "tsyringe";
+import { inject, singleton } from "tsyringe";
 import Redis from "ioredis";
 import { CacheKey } from "../types";
+import { LoggerService } from "./logger.service";
 
 interface CacheEntry<T> {
   data: T;
@@ -15,7 +16,7 @@ export class CacheService {
   private readonly HIGHLIGHTS_CACHE_DURATION_SECONDS = 10 * 60; // 10 minutes
   private valkeyAvailable = false;
 
-  constructor() {
+  constructor(@inject(LoggerService) private logger: LoggerService) {
     const host = process.env.VALKEY_HOST;
     const port = Number(process.env.VALKEY_PORT || 6379);
     const password = process.env.VALKEY_PASSWORD;
@@ -43,23 +44,23 @@ export class CacheService {
       });
 
       this.redis.on("error", (err) => {
-        console.error("Valkey connection error:", err);
+        this.logger.error("Valkey connection error", { error: err });
         this.valkeyAvailable = false;
       });
 
       this.redis.on("connect", () => {
-        console.log("Connected to Valkey successfully");
+        this.logger.info("Connected to Valkey successfully");
         this.valkeyAvailable = true;
       });
 
       this.redis.on("close", () => {
-        console.warn(
+        this.logger.warn(
           "Valkey connection closed, falling back to in-memory cache",
         );
         this.valkeyAvailable = false;
       });
     } else {
-      console.warn(
+      this.logger.warn(
         "VALKEY_HOST not configured, using in-memory cache only (dev mode)",
       );
     }
@@ -73,7 +74,10 @@ export class CacheService {
         if (!data) return null;
         return JSON.parse(data) as T;
       } catch (error) {
-        console.error(`Error getting cache key ${key} from Valkey:`, error);
+        this.logger.error(`Error getting cache key ${key} from Valkey`, {
+          key,
+          error,
+        });
         // Fall through to memory cache
       }
     }
@@ -100,7 +104,10 @@ export class CacheService {
         await this.redis.setex(key, ttl, JSON.stringify(data));
         return; // Success, no need to use memory cache
       } catch (error) {
-        console.error(`Error setting cache key ${key} in Valkey:`, error);
+        this.logger.error(`Error setting cache key ${key} in Valkey`, {
+          key,
+          error,
+        });
         // Fall through to memory cache
       }
     }
@@ -118,7 +125,7 @@ export class CacheService {
       try {
         await this.redis.flushdb();
       } catch (error) {
-        console.error("Error clearing Valkey cache:", error);
+        this.logger.error("Error clearing Valkey cache", { error });
       }
     }
 
