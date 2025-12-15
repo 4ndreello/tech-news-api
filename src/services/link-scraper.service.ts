@@ -18,7 +18,7 @@ export class LinkScraperService {
    * @returns Texto extraído (ou string vazia se falhar)
    */
   async extractMainText(url: string): Promise<string> {
-    const cachedText = this.cacheService.get<string>(url);
+    const cachedText = await this.cacheService.get<string>(url);
     if (cachedText) {
       return cachedText;
     }
@@ -83,7 +83,7 @@ export class LinkScraperService {
       context = context.replace(/\s{3,}/g, " ").trim();
 
       if (context) {
-        this.cacheService.set(url, context);
+        await this.cacheService.set(url, context);
       }
 
       return context;

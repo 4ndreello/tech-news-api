@@ -11,7 +11,7 @@ export class TabNewsService {
   constructor(@inject(CacheService) private cacheService: CacheService) {}
 
   async fetchNews(): Promise<NewsItem[]> {
-    const cached = this.cacheService.get<NewsItem[]>(CacheKey.TabNews);
+    const cached = await this.cacheService.get<NewsItem[]>(CacheKey.TabNews);
     if (cached) return cached;
 
     if (this.fetchLock) {
@@ -47,20 +47,20 @@ export class TabNewsService {
       commentCount: item.children_deep_count,
     }));
 
-    this.cacheService.set(CacheKey.TabNews, mapped);
+    await this.cacheService.set(CacheKey.TabNews, mapped);
     return mapped;
   }
 
   async fetchComments(username: string, slug: string): Promise<Comment[]> {
     const cacheKey = `${CacheKey.TabNewsComments}:${username}:${slug}`;
-    const cached = this.cacheService.get<Comment[]>(cacheKey);
+    const cached = await this.cacheService.get<Comment[]>(cacheKey);
     if (cached) return cached;
 
     const res = await fetch(`${this.TABNEWS_API}/${username}/${slug}/children`);
     if (!res.ok) throw new Error("Falha ao carregar comentários");
     const comments = (await res.json()) as Comment[];
 
-    this.cacheService.set(cacheKey, comments);
+    await this.cacheService.set(cacheKey, comments);
     return comments;
   }
 }

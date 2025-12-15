@@ -11,7 +11,7 @@ export class HackerNewsService {
   constructor(@inject(CacheService) private cacheService: CacheService) {}
 
   async fetchNews(): Promise<NewsItem[]> {
-    const cached = this.cacheService.get<NewsItem[]>(CacheKey.HackerNews);
+    const cached = await this.cacheService.get<NewsItem[]>(CacheKey.HackerNews);
     if (cached) return cached;
 
     if (this.fetchLock) {
@@ -60,7 +60,7 @@ export class HackerNewsService {
         commentCount: item.descendants || 0,
       }));
 
-    this.cacheService.set(CacheKey.HackerNews, mapped);
+    await this.cacheService.set(CacheKey.HackerNews, mapped);
     return mapped;
   }
 }

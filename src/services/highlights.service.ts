@@ -29,7 +29,9 @@ export class HighlightsService {
   ) {}
 
   async fetchHighlights(): Promise<Highlight[]> {
-    const cached = this.cacheService.get<Highlight[]>(CacheKey.Highlights);
+    const cached = await this.cacheService.get<Highlight[]>(
+      CacheKey.Highlights,
+    );
     if (cached) {
       return cached;
     }
@@ -62,7 +64,7 @@ export class HighlightsService {
       topCount: top45.length,
     });
 
-    this.cacheService.set(CacheKey.Highlights, top45);
+    await this.cacheService.set(CacheKey.Highlights, top45);
     this.logger.info("highlights array saved to cache", {
       count: top45.length,
     });
@@ -74,7 +76,7 @@ export class HighlightsService {
     return Promise.all(
       highlights.map(async (h) => {
         const summaryCacheKey = `highlight_iasummary_${h.id}`;
-        let aiSummary = this.cacheService.get<string>(summaryCacheKey);
+        let aiSummary = await this.cacheService.get<string>(summaryCacheKey);
 
         if (aiSummary) {
           this.logger.info("gemini AI summary retrieved from cache", {
@@ -94,7 +96,7 @@ export class HighlightsService {
           try {
             const textToSummarize = this.buildTextForAI(h);
             aiSummary = await this.geminiService.summarize(textToSummarize);
-            this.cacheService.set(summaryCacheKey, aiSummary);
+            await this.cacheService.set(summaryCacheKey, aiSummary);
             this.logger.info("gemini AI summary generated and saved to cache", {
               id: h.id,
               title: h.title,

@@ -95,7 +95,7 @@ Services follow a clear separation of concerns:
      - Caches highlights for 10 minutes (vs 5 minutes for news)
 
 4. **Infrastructure Services**
-   - `CacheService`: In-memory caching with TTL (5min news, 10min highlights)
+   - `CacheService`: Valkey-based caching with TTL via GCP Memorystore (5min news, 10min highlights)
    - `GeminiService`: Google Gemini AI integration for content analysis
    - `LinkScraperService`: Extracts metadata from URLs
    - `LoggerService`: Request-scoped logging with correlation IDs
@@ -117,25 +117,34 @@ Legacy endpoints (no pagination):
 
 ### Caching Strategy
 
-The `CacheService` (`src/services/cache.service.ts`) provides in-memory caching with automatic expiration:
+The `CacheService` (`src/services/cache.service.ts`) provides **Valkey-based caching** with automatic expiration using GCP Memorystore:
 
 **How it works:**
-- Stores data with timestamps in a simple `Record<string, CacheEntry<T>>` object
-- `get<T>(key: string)`: Returns cached data or `null` if expired/missing
-- `set<T>(key: string, data: T)`: Stores data with current timestamp
-- `clear()`: Clears all cached entries
-- Automatic expiration check on `get()` - expired entries are deleted
+- Uses `ioredis` client to connect to GCP Memorystore (Valkey)
+- `async get<T>(key: string)`: Returns cached data or `null` if expired/missing
+- `async set<T>(key: string, data: T)`: Stores data with automatic TTL using `SETEX`
+- `async clear()`: Flushes all keys in the current database
+- `async disconnect()`: Gracefully closes Valkey connection
+- Automatic retry strategy with exponential backoff (max 2s delay)
+
+**Configuration via Environment Variables:**
+- `VALKEY_HOST`: Memorystore instance IP (required)
+- `VALKEY_PORT`: Port number (default: 6379)
+- `VALKEY_PASSWORD`: Auth password (optional, disabled by default in GCP)
+- `VALKEY_DB`: Database number (default: 0)
 
 **TTL Configuration:**
-- **News**: 5 minutes (TabNews, Hacker News) - `CACHE_DURATION`
-- **Highlights**: 10 minutes (AI-processed content) - `HIGHLIGHTS_CACHE_DURATION`
-- Cache keys defined in `src/types.ts` (`CacheKey` enum: `TabNews`, `HackerNews`, `TabNewsComments`, `Highlights`)
+- **News**: 5 minutes (TabNews, Hacker News) - `CACHE_DURATION_SECONDS`
+- **Highlights**: 10 minutes (AI-processed content) - `HIGHLIGHTS_CACHE_DURATION_SECONDS`
+- Cache keys defined in `src/types.ts` (`CacheKey` enum: `TabNews`, `HackerNews`, `TabNewsComments`, `Highlights`, `SmartMix`)
 
 **Important notes:**
-- Cache is **in-memory only** - cleared on server restart
-- No persistence layer - designed for ephemeral caching
-- Each service manages its own cache key and handles cache misses
-- Pattern: Check cache → If null, fetch from API → Store in cache → Return data
+- Cache is **persistent** across server restarts (Valkey-backed)
+- All cache operations are **asynchronous** - services must use `await`
+- Connection errors are logged but don't crash the application
+- Retry logic handles temporary network issues
+- AUTH is **disabled by default** in GCP Memorystore (secure via VPC isolation)
+- Pattern: `await` cache check → If null, fetch from API → `await` cache store → Return data
 
 ### Error Handling
 
@@ -165,6 +174,11 @@ Configured in `src/index.ts` to allow:
 
 Copy `.env.example` to `.env` and configure:
 - `PORT`: Server port (default: 8080)
+- **Valkey (GCP Memorystore)**:
+  - `VALKEY_HOST`: Memorystore instance IP address (required)
+  - `VALKEY_PORT`: Port (default: 6379)
+  - `VALKEY_PASSWORD`: Authentication password (optional, disabled by default)
+  - `VALKEY_DB`: Database number (default: 0)
 - `TWITTER_BEARER_TOKEN`: Twitter API bearer token (for highlights)
 - `TWITTER_API_KEY`, `TWITTER_API_SECRET`: Twitter API credentials
 - `GEMINI_API_KEY`: Google Gemini API key for AI processing
@@ -220,6 +234,7 @@ The `GeminiService` (`src/services/gemini.service.ts`) handles AI processing:
 
 - Application runs on port 8080 in production (GCP Cloud Run default)
 - Uses structured logging for GCP Cloud Logging integration
-- No database - all state is in-memory cache (ephemeral)
+- **Valkey cache** via GCP Memorystore for persistent caching across instances
+- Requires VPC connector configuration in Cloud Run to access Memorystore private IP
 - Designed to be stateless and horizontally scalable
 - Background task: `startBackgroundUpdates()` monitors external service health

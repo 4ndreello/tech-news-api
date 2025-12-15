@@ -18,7 +18,7 @@ export class SmartMixService {
   ) {}
 
   async fetchMix(): Promise<NewsItem[]> {
-    const cached = this.cacheService.get<NewsItem[]>(CacheKey.SmartMix);
+    const cached = await this.cacheService.get<NewsItem[]>(CacheKey.SmartMix);
     if (cached) return cached;
 
     if (this.fetchLock) {
@@ -74,7 +74,7 @@ export class SmartMixService {
       if (i < topHn.length && topHn[i]) mixed.push(topHn[i]);
     }
 
-    this.cacheService.set(CacheKey.SmartMix, mixed);
+    await this.cacheService.set(CacheKey.SmartMix, mixed);
     return mixed;
   }
 
