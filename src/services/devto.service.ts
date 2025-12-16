@@ -1,5 +1,6 @@
 import { inject, singleton } from "tsyringe";
-import type { ArticleWithAuthor, DevToArticle } from "../types";
+import type { ArticleWithAuthor, DevToArticle, NewsItem } from "../types";
+import { Source } from "../types";
 import { LoggerService } from "./logger.service";
 
 @singleton()
@@ -85,5 +86,57 @@ export class DevToService {
 
       return !readingTimeTooBig;
     });
+  }
+
+  /**
+   * Fetch Dev.to articles as NewsItem[] to integrate with the news feed
+   */
+  async fetchNews(): Promise<NewsItem[]> {
+    try {
+      // Fetch articles
+      const articles = await this.fetchRecentArticles(100);
+
+      // Apply filters
+      const filtered = this.filterArticleReadingTime(articles);
+
+      this.logger.info("fetched and filtered Dev.to articles for news", {
+        totalFetched: articles.length,
+        afterFilter: filtered.length,
+      });
+
+      // Convert to NewsItem format
+      const newsItems: NewsItem[] = filtered.map((articleWithAuthor) => {
+        const { article } = articleWithAuthor;
+
+        // Calculate score based on reactions and comments
+        // Weight reactions more heavily than comments
+        const score =
+          article.positive_reactions_count * 2 + article.comments_count * 5;
+
+        return {
+          id: `devto-${article.id}`,
+          title: article.title,
+          author: article.user.username,
+          score,
+          publishedAt: article.published_at,
+          source: Source.DevTo,
+          url: article.url,
+          sourceUrl: article.canonical_url,
+          body: article.description,
+          commentCount: article.comments_count,
+        };
+      });
+
+      this.logger.info("converted Dev.to articles to news items", {
+        count: newsItems.length,
+      });
+
+      return newsItems;
+    } catch (error) {
+      this.logger.error("error fetching Dev.to news", {
+        error: error instanceof Error ? error.message : String(error),
+      });
+      return [];
+    }
   }
 }
