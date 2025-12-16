@@ -45,7 +45,7 @@ export class LinkScraperService {
 
       // Extrai <meta name="description">
       const metaDescMatch = html.match(
-        /<meta[^>]+name=["']description["'][^>]+content=["']([^\"'>]+)["'][^>]*>/i,
+        /<meta[^>]+name=["']description["'][^>]+content=["']([^\"'>]+)["'][^>]*>/i
       );
       const metaDesc = metaDescMatch ? metaDescMatch[1].trim() : "";
 
@@ -96,7 +96,7 @@ export class LinkScraperService {
   /**
    * Remove tags HTML e retorna apenas o texto limpo.
    */
-  private extractTextFromHTML(html: string): string {
+  extractTextFromHTML(html: string): string {
     // Remove scripts/styles
     let text = html.replace(/<script[\s\S]*?<\/script>/gi, "");
     text = text.replace(/<style[\s\S]*?<\/style>/gi, "");

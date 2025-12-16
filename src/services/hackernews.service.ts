@@ -4,77 +4,130 @@ import { CacheKey, Source } from "../types";
 import { CacheService } from "./cache.service";
 import { GeminiService } from "./gemini.service";
 import { LoggerService } from "./logger.service";
+import { LinkScraperService } from "./link-scraper.service";
 
 @singleton()
 export class HackerNewsService {
   private readonly HN_BASE_URL = "https://hacker-news.firebaseio.com/v0";
   private readonly MIN_TECH_SCORE = 61; // Minimum score to consider tech-related
-  private fetchLock: Promise<NewsItem[]> | null = null;
+  private readonly BATCH_SIZE = 30; // Items per batch
+  private fetchLocks: Map<number, Promise<NewsItem[]>> = new Map(); // Lock per batch
+  private topStoriesIds: number[] | null = null; // Cache all IDs
+  private topStoriesIdsFetchLock: Promise<number[]> | null = null;
 
   constructor(
     @inject(CacheService) private cacheService: CacheService,
     @inject(GeminiService) private geminiService: GeminiService,
     @inject(LoggerService) private logger: LoggerService,
+    @inject(LinkScraperService) private linkScraperService: LinkScraperService
   ) {}
 
   /**
-   * Strips HTML tags from text
+   * Fetches all top stories IDs from HackerNews (cached in memory)
    */
-  private stripHtml(html: string): string {
-    return html
-      .replace(/<[^>]*>/g, "") // Remove HTML tags
-      .replace(/&quot;/g, '"')
-      .replace(/&amp;/g, "&")
-      .replace(/&lt;/g, "<")
-      .replace(/&gt;/g, ">")
-      .replace(/&#x27;/g, "'")
-      .replace(/&#x2F;/g, "/")
-      .trim();
-  }
-
-  async fetchNews(): Promise<NewsItem[]> {
-    const cached = await this.cacheService.get<NewsItem[]>(CacheKey.HackerNews);
-    if (cached) return cached;
-
-    if (this.fetchLock) {
-      return this.fetchLock;
+  private async fetchTopStoriesIds(): Promise<number[]> {
+    // Check memory cache first
+    if (this.topStoriesIds) {
+      return this.topStoriesIds;
     }
 
-    this.fetchLock = this.doFetch();
+    // Check if fetch is already in progress
+    if (this.topStoriesIdsFetchLock) {
+      return this.topStoriesIdsFetchLock;
+    }
+
+    // Create fetch promise with lock
+    this.topStoriesIdsFetchLock = (async () => {
+      const idsRes = await fetch(`${this.HN_BASE_URL}/topstories.json`);
+      if (!idsRes.ok) {
+        throw new Error("Falha ao carregar IDs do Hacker News");
+      }
+      const ids = (await idsRes.json()) as number[];
+      this.topStoriesIds = ids;
+      this.logger.info(`Loaded ${ids.length} top story IDs from HackerNews`);
+      return ids;
+    })();
 
     try {
-      const result = await this.fetchLock;
+      const result = await this.topStoriesIdsFetchLock;
       return result;
     } finally {
-      this.fetchLock = null;
+      this.topStoriesIdsFetchLock = null;
     }
   }
 
-  private async doFetch(): Promise<NewsItem[]> {
-    const idsRes = await fetch(`${this.HN_BASE_URL}/topstories.json`);
-    if (!idsRes.ok) throw new Error("Falha ao carregar IDs do Hacker News");
-    const ids = (await idsRes.json()) as number[];
+  /**
+   * Fetches a batch of HackerNews stories
+   * @param batch - Batch number (0-indexed: 0 = items 0-29, 1 = items 30-59, etc.)
+   * @returns Array of filtered NewsItems from that batch
+   */
+  async fetchBatch(batch: number): Promise<NewsItem[]> {
+    // Check cache first
+    const cacheKey = `${CacheKey.HackerNews}:batch:${batch}`;
+    const cached = await this.cacheService.get<NewsItem[]>(cacheKey);
+    if (cached) {
+      this.logger.info(`HackerNews batch ${batch} served from cache`);
+      return cached;
+    }
 
-    const topIds = ids.slice(0, 100);
+    // Check if there's already a fetch in progress for this batch
+    const existingLock = this.fetchLocks.get(batch);
+    if (existingLock) {
+      this.logger.info(
+        `HackerNews batch ${batch} fetch already in progress, waiting...`
+      );
+      return existingLock;
+    }
 
-    const itemPromises = topIds.map((id) =>
-      fetch(`${this.HN_BASE_URL}/item/${id}.json`).then((res) => res.json()),
+    // Create new fetch promise with lock
+    const fetchPromise = this.doFetchBatch(batch);
+    this.fetchLocks.set(batch, fetchPromise);
+
+    try {
+      const result = await fetchPromise;
+      return result;
+    } finally {
+      this.fetchLocks.delete(batch);
+    }
+  }
+
+  private async doFetchBatch(batch: number): Promise<NewsItem[]> {
+    this.logger.info(`Fetching HackerNews batch ${batch}...`);
+
+    // Get all top stories IDs
+    const allIds = await this.fetchTopStoriesIds();
+
+    // Calculate batch range
+    const startIdx = batch * this.BATCH_SIZE;
+    const endIdx = startIdx + this.BATCH_SIZE;
+    const batchIds = allIds.slice(startIdx, endIdx);
+
+    if (batchIds.length === 0) {
+      this.logger.info(`HackerNews batch ${batch} is empty (out of range)`);
+      return [];
+    }
+
+    this.logger.info(
+      `Fetching ${batchIds.length} stories from HackerNews batch ${batch}...`
+    );
+
+    // Fetch all items in this batch in parallel
+    const itemPromises = batchIds.map((id) =>
+      fetch(`${this.HN_BASE_URL}/item/${id}.json`).then((res) => res.json())
     );
 
     const itemsRaw = (await Promise.all(itemPromises)) as HackerNewsItem[];
 
-    this.logger.info(
-      `Fetched ${itemsRaw.length} posts from HackerNews, analyzing with AI...`,
-    );
-
+    // Filter out dead/flagged posts
     const filtered = itemsRaw.filter(
       (item) =>
         item &&
         item.title &&
         !item.title.startsWith("[dead]") &&
-        !item.title.startsWith("[flagged]"),
+        !item.title.startsWith("[flagged]")
     );
 
+    // Map to NewsItem
     const mapped = filtered.map((item) => ({
       id: String(item.id),
       title: item.title,
@@ -84,18 +137,30 @@ export class HackerNewsService {
       source: Source.HackerNews,
       url: item.url || `https://news.ycombinator.com/item?id=${item.id}`,
       commentCount: item.descendants || 0,
-      body: item.text ? this.stripHtml(item.text) : undefined,
+      body: item.text
+        ? this.linkScraperService.extractTextFromHTML(item.text)
+        : undefined,
     }));
 
-    // Filter by tech relevance using AI (parallel analysis)
+    // Filter by tech relevance using AI
     const techFiltered = await this.filterByTechRelevance(mapped);
 
     this.logger.info(
-      `AI filtered: ${techFiltered.length}/${mapped.length} HN posts are tech-related`,
+      `HackerNews batch ${batch}: ${techFiltered.length}/${mapped.length} posts are tech-related`
     );
 
-    await this.cacheService.set(CacheKey.HackerNews, techFiltered);
+    // Cache this batch for 5 minutes
+    const cacheKey = `${CacheKey.HackerNews}:batch:${batch}`;
+    await this.cacheService.set(cacheKey, techFiltered);
     return techFiltered;
+  }
+
+  /**
+   * Legacy method for backward compatibility - fetches first batch only
+   * @deprecated Use fetchBatch() instead for better control
+   */
+  async fetchNews(): Promise<NewsItem[]> {
+    return this.fetchBatch(0);
   }
 
   /**
@@ -116,7 +181,7 @@ export class HackerNewsService {
         // Analyze with AI (title + body if available)
         score = await this.geminiService.analyzeTechRelevance(
           item.title,
-          item.body || "",
+          item.body || ""
         );
 
         // Cache score for 24 hours (86400 seconds)
