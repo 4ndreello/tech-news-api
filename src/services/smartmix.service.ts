@@ -52,19 +52,33 @@ export class SmartMixService {
       throw new Error("Não foi possível carregar nenhuma fonte de notícias.");
     }
 
-    const sortedTab = [...tabNews].sort(
-      (a, b) =>
-        this.rankingService.calculateRank(b) -
-        this.rankingService.calculateRank(a),
-    );
-    const sortedHn = [...hn].sort(
-      (a, b) =>
-        this.rankingService.calculateRank(b) -
-        this.rankingService.calculateRank(a),
-    );
+    // Rank items and replace score field with our normalized score
+    const sortedTab = [...tabNews]
+      .sort(
+        (a, b) =>
+          this.rankingService.calculateRank(b) -
+          this.rankingService.calculateRank(a),
+      )
+      .slice(0, 100)
+      .map((item) => ({
+        ...item,
+        score: this.rankingService.calculateRank(item), // Replace original score with our normalized rank
+      }));
 
-    const topTab = sortedTab.slice(0, 100);
-    const topHn = sortedHn.slice(0, 100);
+    const sortedHn = [...hn]
+      .sort(
+        (a, b) =>
+          this.rankingService.calculateRank(b) -
+          this.rankingService.calculateRank(a),
+      )
+      .slice(0, 100)
+      .map((item) => ({
+        ...item,
+        score: this.rankingService.calculateRank(item), // Replace original score with our normalized rank
+      }));
+
+    const topTab = sortedTab;
+    const topHn = sortedHn;
 
     const mixed: NewsItem[] = [];
     const maxLength = Math.max(topTab.length, topHn.length);
