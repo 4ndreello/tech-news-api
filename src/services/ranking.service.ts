@@ -3,50 +3,54 @@ import type { NewsItem } from "../types";
 
 @singleton()
 export class RankingService {
-  // Simple engagement-based ranking
-  // Formula: Score + (Comments * Weight)
+  // Logarithmic Hot Ranking (Reddit-style) with AI tech relevance
+  // Formula: [log10(engagement) / (ageHours + 2)^gravity] * techBoost * 1000
   //
-  // Score (points/tabcoins) represents approval/quality
-  // Comments represent engagement and discussion value
-  // Weight determines how much comments matter vs pure score
+  // This normalizes scores across different sources (HackerNews vs TabNews)
+  // by using logarithmic scale instead of absolute values
+  //
+  // Engagement = score + (comments * weight)
+  // TechScore (0-100) is AI-based tech relevance boost
   calculateRank(item: NewsItem): number {
     const score = item.score || 0;
     const comments = item.commentCount || 0;
+    const techScore = item.techScore || 0;
 
     // Comments weight: how much a comment is worth compared to a point
     // 0.3 means ~3 comments = 1 point in value
     const COMMENT_WEIGHT = 0.3;
 
-    const baseScore = score + comments * COMMENT_WEIGHT;
+    // Calculate total engagement (combines score + comments)
+    const engagement = score + comments * COMMENT_WEIGHT;
 
-    // Time-based penalty: penalize both very recent and very old posts
-    // Sweet spot: 6 hours to 5 days
+    // Logarithmic normalization: compresses large numbers, values small numbers
+    // log10(1) = 0, log10(10) = 1, log10(100) = 2, log10(1000) = 3
+    // This equalizes HN (600 points) with TabNews (14 points)
+    const normalizedScore = Math.log10(Math.max(1, engagement));
+
+    // Time decay: posts get exponentially less relevant as they age
     const publishedDate = new Date(item.publishedAt);
     const now = new Date();
     const ageInHours =
       (now.getTime() - publishedDate.getTime()) / (1000 * 60 * 60);
 
-    // Define time windows
-    const MIN_IDEAL_HOURS = 6; // 12 hours
-    const MAX_IDEAL_HOURS = 5 * 24; // 5 days
+    // Gravity controls how fast old posts decay (1.8 is Reddit's standard)
+    // Higher gravity = faster decay
+    const GRAVITY = 1.8;
+    const ageDecay = Math.pow(ageInHours + 2, GRAVITY); // +2 prevents division by zero
 
-    let timePenalty = 1; // No penalty by default
+    // Tech score boost: multiplier based on AI relevance (0-100)
+    // 100 = 1.5x boost (50% increase)
+    // 80 = 1.4x boost
+    // 61 = 1.305x boost (minimum passing score)
+    // 0 = 1.0x (no boost)
+    const TECH_SCORE_WEIGHT = 0.005; // 0.5% boost per point
+    const techBoost = 1 + techScore * TECH_SCORE_WEIGHT;
 
-    if (ageInHours < MIN_IDEAL_HOURS) {
-      // Penalize very recent posts (< 12h)
-      // The penalty decreases as the post gets closer to 12h
-      // At 0h: penalty = 0.3 (70% reduction)
-      // At 12h: penalty = 1.0 (no reduction)
-      timePenalty = 0.3 + (0.7 * ageInHours) / MIN_IDEAL_HOURS;
-    } else if (ageInHours > MAX_IDEAL_HOURS) {
-      // Penalize old posts (> 5 days) with exponential decay
-      // Similar to Hacker News algorithm
-      const GRAVITY = 1.8;
-      const hoursOverIdeal = ageInHours - MAX_IDEAL_HOURS;
-      timePenalty = 1 / Math.pow(hoursOverIdeal + 2, GRAVITY);
-    }
-    // else: between 12h and 5 days -> no penalty (timePenalty = 1)
+    // Final score: multiply by 1000 for human-readable numbers
+    // Example: 0.055 → 55, 0.12 → 120
+    const SCALE_FACTOR = 1000;
 
-    return baseScore * timePenalty;
+    return Math.round((normalizedScore / ageDecay) * techBoost * SCALE_FACTOR);
   }
 }
