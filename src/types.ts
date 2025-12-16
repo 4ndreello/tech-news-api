@@ -60,6 +60,7 @@ export interface HackerNewsItem {
   by: string;
   time: number; // Unix timestamp in seconds
   url?: string;
+  text?: string; // Story/comment body (HTML) - only present for Ask HN, Show HN, etc
   descendants?: number; // comment count
   type: string;
 }
