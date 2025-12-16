@@ -11,7 +11,7 @@ import {
 import { Source } from "./types";
 import type { NewsItem } from "./types";
 
-describe("RankingService", () => {
+describe("RankingService - Logarithmic Ranking", () => {
   let rankingService: RankingService;
 
   beforeEach(() => {
@@ -19,100 +19,166 @@ describe("RankingService", () => {
     rankingService = container.resolve(RankingService);
   });
 
-  it("should calculate rank with only score", () => {
+  it("should calculate logarithmic rank correctly", () => {
+    const now = new Date();
+    const sixHoursAgo = new Date(now.getTime() - 6 * 60 * 60 * 1000);
+
     const item: NewsItem = {
       id: "1",
       title: "Test",
       author: "user",
       score: 100,
-      publishedAt: "2024-01-01T00:00:00Z",
+      publishedAt: sixHoursAgo.toISOString(),
       source: Source.TabNews,
       commentCount: 0,
     };
 
-    expect(rankingService.calculateRank(item)).toBe(100);
+    const rank = rankingService.calculateRank(item);
+
+    // log10(100) = 2, ageDecay = (6+2)^1.8 ≈ 42.22, rank = 2/42.22 * 1000 ≈ 47
+    expect(rank).toBeGreaterThan(40);
+    expect(rank).toBeLessThan(55);
   });
 
-  it("should calculate rank with score and comments", () => {
-    const item: NewsItem = {
-      id: "1",
-      title: "Test",
-      author: "user",
-      score: 100,
-      publishedAt: "2024-01-01T00:00:00Z",
-      source: Source.TabNews,
-      commentCount: 30, // 30 * 0.3 = 9
+  it("should normalize HN and TabNews scores fairly", () => {
+    const now = new Date();
+    const sixHoursAgo = new Date(now.getTime() - 6 * 60 * 60 * 1000);
+
+    const hnItem: NewsItem = {
+      id: "hn1",
+      title: "HN Article",
+      author: "hnuser",
+      score: 600,
+      publishedAt: sixHoursAgo.toISOString(),
+      source: Source.HackerNews,
+      commentCount: 100,
+      techScore: 70,
     };
 
-    expect(rankingService.calculateRank(item)).toBe(109);
+    const tabItem: NewsItem = {
+      id: "tab1",
+      title: "TabNews Article",
+      author: "tabuser",
+      score: 14,
+      publishedAt: sixHoursAgo.toISOString(),
+      source: Source.TabNews,
+      commentCount: 4,
+      techScore: 85,
+    };
+
+    const hnRank = rankingService.calculateRank(hnItem);
+    const tabRank = rankingService.calculateRank(tabItem);
+
+    // TabNews with high techScore should compete with HN
+    // Should be at least 40% of HN rank (much better than 2% before)
+    expect(tabRank).toBeGreaterThan(hnRank * 0.4);
+    expect(tabRank).toBeLessThan(hnRank);
   });
 
-  it("should handle zero score and comments", () => {
-    const item: NewsItem = {
+  it("should handle zero and low scores gracefully", () => {
+    const now = new Date();
+    const oneHourAgo = new Date(now.getTime() - 1 * 60 * 60 * 1000);
+
+    const zeroScore: NewsItem = {
       id: "1",
-      title: "Test",
+      title: "Zero Score",
       author: "user",
       score: 0,
-      publishedAt: "2024-01-01T00:00:00Z",
+      publishedAt: oneHourAgo.toISOString(),
       source: Source.TabNews,
       commentCount: 0,
     };
 
-    expect(rankingService.calculateRank(item)).toBe(0);
+    const rank = rankingService.calculateRank(zeroScore);
+
+    // log10(max(1, 0)) = log10(1) = 0, so rank should be 0
+    expect(rank).toBe(0);
   });
 
-  it("should handle missing score and commentCount", () => {
-    const item: NewsItem = {
+  it("should return human-readable scores (10-200 range)", () => {
+    const now = new Date();
+    const twelveHoursAgo = new Date(now.getTime() - 12 * 60 * 60 * 1000);
+
+    const typicalPost: NewsItem = {
       id: "1",
-      title: "Test",
-      author: "user",
-      score: 0,
-      publishedAt: "2024-01-01T00:00:00Z",
-      source: Source.TabNews,
-    };
-
-    expect(rankingService.calculateRank(item)).toBe(0);
-  });
-
-  it("should prioritize high score over many comments", () => {
-    const highScore: NewsItem = {
-      id: "1",
-      title: "High Score",
-      author: "user",
-      score: 500,
-      publishedAt: "2024-01-01T00:00:00Z",
-      source: Source.TabNews,
-      commentCount: 10, // 500 + 3 = 503
-    };
-
-    const manyComments: NewsItem = {
-      id: "2",
-      title: "Many Comments",
-      author: "user",
-      score: 100,
-      publishedAt: "2024-01-01T00:00:00Z",
-      source: Source.TabNews,
-      commentCount: 200, // 100 + 60 = 160
-    };
-
-    expect(rankingService.calculateRank(highScore)).toBeGreaterThan(
-      rankingService.calculateRank(manyComments),
-    );
-  });
-
-  it("should give proper weight to comments (0.3 ratio)", () => {
-    const item: NewsItem = {
-      id: "1",
-      title: "Test",
+      title: "Typical Post",
       author: "user",
       score: 50,
-      publishedAt: "2024-01-01T00:00:00Z",
+      publishedAt: twelveHoursAgo.toISOString(),
       source: Source.TabNews,
-      commentCount: 100,
+      commentCount: 10,
     };
 
-    // 50 + (100 * 0.3) = 50 + 30 = 80
-    expect(rankingService.calculateRank(item)).toBe(80);
+    const rank = rankingService.calculateRank(typicalPost);
+
+    // Should be in human-readable range (not 0.05, but 50-ish)
+    expect(rank).toBeGreaterThan(10);
+    expect(rank).toBeLessThan(200);
+  });
+
+  it("should apply tech score boost correctly", () => {
+    const now = new Date();
+    const sixHoursAgo = new Date(now.getTime() - 6 * 60 * 60 * 1000);
+
+    const noTechScore: NewsItem = {
+      id: "1",
+      title: "No Tech",
+      author: "user",
+      score: 100,
+      publishedAt: sixHoursAgo.toISOString(),
+      source: Source.TabNews,
+      commentCount: 0,
+      techScore: 0,
+    };
+
+    const highTechScore: NewsItem = {
+      id: "2",
+      title: "High Tech",
+      author: "user",
+      score: 100,
+      publishedAt: sixHoursAgo.toISOString(),
+      source: Source.TabNews,
+      commentCount: 0,
+      techScore: 100, // 1.5x boost
+    };
+
+    const noTechRank = rankingService.calculateRank(noTechScore);
+    const highTechRank = rankingService.calculateRank(highTechScore);
+
+    // High tech score should be ~1.5x higher
+    expect(highTechRank).toBeGreaterThan(noTechRank * 1.4);
+    expect(highTechRank).toBeLessThan(noTechRank * 1.6);
+  });
+
+  it("should apply time decay (older posts rank lower)", () => {
+    const now = new Date();
+    const oneHourAgo = new Date(now.getTime() - 1 * 60 * 60 * 1000);
+    const oneDayAgo = new Date(now.getTime() - 24 * 60 * 60 * 1000);
+
+    const recentPost: NewsItem = {
+      id: "1",
+      title: "Recent",
+      author: "user",
+      score: 100,
+      publishedAt: oneHourAgo.toISOString(),
+      source: Source.TabNews,
+      commentCount: 0,
+    };
+
+    const oldPost: NewsItem = {
+      id: "2",
+      title: "Old",
+      author: "user",
+      score: 100,
+      publishedAt: oneDayAgo.toISOString(),
+      source: Source.TabNews,
+      commentCount: 0,
+    };
+
+    const recentRank = rankingService.calculateRank(recentPost);
+    const oldRank = rankingService.calculateRank(oldPost);
+
+    expect(recentRank).toBeGreaterThan(oldRank);
   });
 });
 
@@ -476,26 +542,26 @@ describe("CacheService", () => {
     cacheService.clear();
   });
 
-  it("should store and retrieve data from cache", () => {
+  it("should store and retrieve data from cache", async () => {
     const testData = { foo: "bar" };
-    cacheService.set("test-key", testData);
+    await cacheService.set("test-key", testData);
 
-    const retrieved = cacheService.get("test-key");
+    const retrieved = await cacheService.get("test-key");
     expect(retrieved).toEqual(testData);
   });
 
-  it("should return null for non-existent keys", () => {
-    const result = cacheService.get("non-existent");
+  it("should return null for non-existent keys", async () => {
+    const result = await cacheService.get("non-existent");
     expect(result).toBeNull();
   });
 
-  it("should clear all cache entries", () => {
-    cacheService.set("key1", "value1");
-    cacheService.set("key2", "value2");
+  it("should clear all cache entries", async () => {
+    await cacheService.set("key1", "value1");
+    await cacheService.set("key2", "value2");
 
-    cacheService.clear();
+    await cacheService.clear();
 
-    expect(cacheService.get("key1")).toBeNull();
-    expect(cacheService.get("key2")).toBeNull();
+    expect(await cacheService.get("key1")).toBeNull();
+    expect(await cacheService.get("key2")).toBeNull();
   });
 });
