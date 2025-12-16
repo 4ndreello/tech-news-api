@@ -55,19 +55,22 @@ export class CacheService {
 
       this.redis.on("close", () => {
         this.logger.warn(
-          "Valkey connection closed, falling back to in-memory cache",
+          "Valkey connection closed, falling back to in-memory cache"
         );
         this.valkeyAvailable = false;
       });
     } else {
       this.logger.warn(
-        "VALKEY_HOST not configured, using in-memory cache only (dev mode)",
+        "VALKEY_HOST not configured, using in-memory cache only (dev mode)"
       );
     }
   }
 
   async get<T>(key: string): Promise<T | null> {
-    // Try Valkey first if available
+    // try Valkey first if available
+    this.logger.log("is gonna use valkey?", {
+      valkeyAvailable: this.redis && this.valkeyAvailable,
+    });
     if (this.redis && this.valkeyAvailable) {
       try {
         const data = await this.redis.get(key);
@@ -78,11 +81,13 @@ export class CacheService {
           key,
           error,
         });
-        // Fall through to memory cache
+        // fall through to memory cache
       }
     }
 
-    // Fallback to in-memory cache
+    this.logger.warn("using in memory cache");
+
+    // fallback to in-memory cache
     const entry = this.memoryCache[key];
     if (!entry) return null;
 
@@ -131,7 +136,7 @@ export class CacheService {
 
     // Always clear memory cache
     Object.keys(this.memoryCache).forEach(
-      (key) => delete this.memoryCache[key],
+      (key) => delete this.memoryCache[key]
     );
   }
 
