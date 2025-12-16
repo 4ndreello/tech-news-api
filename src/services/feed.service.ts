@@ -1,132 +1,118 @@
 import { singleton, inject } from "tsyringe";
 import { SmartMixService } from "./smartmix.service";
-import { HighlightsService } from "./highlights.service";
+import { DevToService } from "./devto.service";
 import { LoggerService } from "./logger.service";
-import type { NewsItem, Highlight, FeedItem, FeedResponse } from "../types";
+import type { NewsItem, FeedItem, FeedResponse } from "../types";
 
 @singleton()
 export class FeedService {
   constructor(
     @inject(SmartMixService) private smartMixService: SmartMixService,
-    @inject(HighlightsService) private highlightsService: HighlightsService,
-    @inject(LoggerService) private logger: LoggerService,
+    @inject(DevToService) private devToService: DevToService,
+    @inject(LoggerService) private logger: LoggerService
   ) {}
 
   async fetchFeed(limit: number, after?: string): Promise<FeedResponse> {
     this.logger.info("fetching unified feed", { limit, after });
 
-    const [newsResult, highlightsResult] = await Promise.allSettled([
+    // Fetch news from all sources in parallel
+    const [mixResult, devToResult] = await Promise.allSettled([
       this.smartMixService.fetchMix(),
-      this.highlightsService.fetchHighlights(),
+      this.devToService.fetchNews(),
     ]);
 
-    const allNews = newsResult.status === "fulfilled" ? newsResult.value : [];
-    const allHighlights =
-      highlightsResult.status === "fulfilled" ? highlightsResult.value : [];
-    if (newsResult.status === "rejected") {
-      this.logger.error("failed to fetch news for feed", {
+    const mixNews = mixResult.status === "fulfilled" ? mixResult.value : [];
+    const devToNews =
+      devToResult.status === "fulfilled" ? devToResult.value : [];
+
+    if (mixResult.status === "rejected") {
+      this.logger.error("failed to fetch mix news for feed", {
         error:
-          newsResult.reason instanceof Error
-            ? newsResult.reason.message
-            : String(newsResult.reason),
+          mixResult.reason instanceof Error
+            ? mixResult.reason.message
+            : String(mixResult.reason),
       });
     }
-    if (highlightsResult.status === "rejected") {
-      this.logger.error("failed to fetch highlights for feed", {
+    if (devToResult.status === "rejected") {
+      this.logger.error("failed to fetch dev.to news for feed", {
         error:
-          highlightsResult.reason instanceof Error
-            ? highlightsResult.reason.message
-            : String(highlightsResult.reason),
+          devToResult.reason instanceof Error
+            ? devToResult.reason.message
+            : String(devToResult.reason),
       });
     }
 
-    const interleavedItems = this.interleaveItems(allNews, allHighlights);
-    const paginatedResult = this.paginateItems(interleavedItems, limit, after);
+    // Merge all news sources
+    const allNews = [...mixNews, ...devToNews];
 
-    const highlightsInPage = paginatedResult.items
-      .filter((item) => item.type === "highlight")
-      .map((item) => {
-        const { type, ...highlight } = item;
-        return highlight as Highlight;
-      });
+    // Separate by source and sort each by score
+    const bySource: Record<string, NewsItem[]> = {
+      TabNews: [],
+      HackerNews: [],
+      DevTo: [],
+    };
 
-    if (highlightsInPage.length > 0) {
-      this.logger.info("enriching highlights with AI (lazy loading)", {
-        count: highlightsInPage.length,
-      });
-      const enrichedHighlights =
-        await this.highlightsService.enrichWithAI(highlightsInPage);
-
-      const enrichedMap = new Map(enrichedHighlights.map((h) => [h.id, h]));
-      const finalItems = paginatedResult.items.map((item) =>
-        item.type === "highlight" && enrichedMap.has(item.id)
-          ? { type: "highlight" as const, ...enrichedMap.get(item.id)! }
-          : item,
-      );
-
-      this.logger.info("feed prepared with AI-enriched highlights", {
-        itemCount: finalItems.length,
-        aiEnrichedCount: highlightsInPage.length,
-      });
-
-      return { items: finalItems, nextCursor: paginatedResult.nextCursor };
-    }
-
-    this.logger.info("feed prepared (no highlights in this page)", {
-      itemCount: paginatedResult.items.length,
+    allNews.forEach((news) => {
+      if (bySource[news.source]) {
+        bySource[news.source].push(news);
+      }
     });
 
-    return paginatedResult;
-  }
+    // Sort each source by score (highest first)
+    Object.keys(bySource).forEach((source) => {
+      bySource[source].sort((a, b) => b.score - a.score);
+    });
 
-  private interleaveItems(
-    news: NewsItem[],
-    highlights: Highlight[],
-  ): FeedItem[] {
-    const result: FeedItem[] = [];
-    let newsIdx = 0;
-    let highlightIdx = 0;
+    // Interleave: take top 1 from each source, then top 2, etc.
+    const interleaved: NewsItem[] = [];
+    const maxLength = Math.max(
+      bySource.TabNews.length,
+      bySource.HackerNews.length,
+      bySource.DevTo.length
+    );
 
-    for (let i = 0; i < 2 && newsIdx < news.length; i++) {
-      result.push({ type: "news", ...news[newsIdx++] });
-    }
-    if (highlightIdx < highlights.length) {
-      result.push({ type: "highlight", ...highlights[highlightIdx++] });
-    }
-
-    const NEWS_PER_HIGHLIGHT = 5;
-    while (newsIdx < news.length || highlightIdx < highlights.length) {
-      for (let i = 0; i < NEWS_PER_HIGHLIGHT && newsIdx < news.length; i++) {
-        result.push({ type: "news", ...news[newsIdx++] });
+    for (let i = 0; i < maxLength; i++) {
+      if (i < bySource.TabNews.length) {
+        interleaved.push(bySource.TabNews[i]);
       }
-
-      if (highlightIdx < highlights.length) {
-        result.push({ type: "highlight", ...highlights[highlightIdx++] });
+      if (i < bySource.HackerNews.length) {
+        interleaved.push(bySource.HackerNews[i]);
+      }
+      if (i < bySource.DevTo.length) {
+        interleaved.push(bySource.DevTo[i]);
       }
     }
 
-    return result;
-  }
-  private paginateItems(
-    items: FeedItem[],
-    limit: number,
-    after?: string,
-  ): FeedResponse {
+    this.logger.info("merged and interleaved news from all sources", {
+      mixNews: mixNews.length,
+      devToNews: devToNews.length,
+      total: interleaved.length,
+    });
+
+    // Convert to FeedItem format
+    const feedItems: FeedItem[] = interleaved.map((news) => ({
+      type: "news",
+      ...news,
+    }));
+
+    // Filter by cursor
     let startIdx = 0;
-
     if (after) {
-      const idx = items.findIndex((item) => item.id === after);
-      if (idx >= 0) {
-        startIdx = idx + 1;
+      const cursorIdx = feedItems.findIndex((item) => item.id === after);
+      if (cursorIdx >= 0) {
+        startIdx = cursorIdx + 1;
       }
     }
 
-    const paginatedItems = items.slice(startIdx, startIdx + limit);
-    const nextCursor =
-      paginatedItems.length === limit && startIdx + limit < items.length
-        ? paginatedItems[paginatedItems.length - 1].id
-        : null;
+    const finalItems = feedItems.slice(startIdx, startIdx + limit);
 
-    return { items: paginatedItems, nextCursor };
+    this.logger.info("feed prepared", {
+      itemCount: finalItems.length,
+    });
+
+    const nextCursor =
+      finalItems.length === limit ? finalItems[finalItems.length - 1].id : null;
+
+    return { items: finalItems, nextCursor };
   }
 }
