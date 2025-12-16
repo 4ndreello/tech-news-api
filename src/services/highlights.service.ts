@@ -13,7 +13,6 @@ import type { ArticleWithAuthor, RedditPost, TweetWithAuthor } from "../types";
 
 @singleton()
 export class HighlightsService {
-  private readonly IA_SUMMARY_TTL = 24 * 60 * 60 * 1000; // 24h
   private fetchLock: Promise<Highlight[]> | null = null;
 
   constructor(
@@ -25,12 +24,12 @@ export class HighlightsService {
     private rankingService: HighlightRankingService,
     @inject(GeminiService) private geminiService: GeminiService,
     @inject(LinkScraperService) private linkScraperService: LinkScraperService,
-    @inject(LoggerService) private logger: LoggerService,
+    @inject(LoggerService) private logger: LoggerService
   ) {}
 
   async fetchHighlights(): Promise<Highlight[]> {
     const cached = await this.cacheService.get<Highlight[]>(
-      CacheKey.Highlights,
+      CacheKey.Highlights
     );
     if (cached) {
       return cached;
@@ -91,7 +90,7 @@ export class HighlightsService {
               id: h.id,
               title: h.title,
               cacheKey: summaryCacheKey,
-            },
+            }
           );
           try {
             const textToSummarize = this.buildTextForAI(h);
@@ -116,7 +115,7 @@ export class HighlightsService {
           ...h,
           summary: aiSummary && aiSummary.length > 0 ? aiSummary : h.summary,
         };
-      }),
+      })
     );
   }
 
@@ -208,8 +207,8 @@ export class HighlightsService {
     const highlights = filtered.map((articleWithAuthor) =>
       this.rankingService.normalizeDevToArticle(
         articleWithAuthor.article,
-        articleWithAuthor.username,
-      ),
+        articleWithAuthor.username
+      )
     );
 
     const articlesMap: Record<string, ArticleWithAuthor> = {};
@@ -235,7 +234,7 @@ export class HighlightsService {
     let filtered: RedditPost[] = [];
 
     const highlights = filtered.map((post) =>
-      this.rankingService.normalizeRedditPost(post),
+      this.rankingService.normalizeRedditPost(post)
     );
 
     const ranked = this.rankingService.rankHighlights(highlights);

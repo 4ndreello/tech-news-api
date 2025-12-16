@@ -13,7 +13,7 @@ export class CacheService {
   private redis: Redis | null = null;
   private memoryCache: Record<string, CacheEntry<any>> = {};
   private readonly CACHE_DURATION_SECONDS = 5 * 60; // 5 minutes
-  private readonly HIGHLIGHTS_CACHE_DURATION_SECONDS = 10 * 60; // 10 minutes
+  private readonly HIGHLIGHTS_CACHE_DURATION_SECONDS = 45 * 60; // 45 minutes
   private valkeyAvailable = false;
 
   constructor(@inject(LoggerService) private logger: LoggerService) {
