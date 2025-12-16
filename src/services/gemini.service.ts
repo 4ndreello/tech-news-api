@@ -34,11 +34,62 @@ export class GeminiService {
         "Empty response or unexpected response from Gemini API.",
         {
           responseText: response.text,
-        }
+        },
       );
       throw new Error("Empty response or unexpected response from Gemini API.");
     }
 
     return response.text.trim().slice(0, maxTokens);
+  }
+
+  /**
+   * Analyzes if content is technology-related
+   * @param title Post title
+   * @param body Post body content (Markdown)
+   * @returns Score from 0-100 (100 = definitely tech-related)
+   */
+  async analyzeTechRelevance(title: string, body: string): Promise<number> {
+    const prompt = `Analise se o conteúdo abaixo é relacionado a TECNOLOGIA (programação, desenvolvimento, software, hardware, IA, cloud, DevOps, engenharia de software, ciência da computação, segurança digital, etc).
+
+TÍTULO: ${title}
+
+CONTEÚDO: ${body.slice(0, 2000)}
+
+Responda APENAS com um número de 0 a 100:
+- 0-30: Não é sobre tecnologia (política, economia, investimentos, notícias gerais)
+- 31-60: Parcialmente relacionado (menção superficial a tech)
+- 61-100: Claramente sobre tecnologia (conteúdo técnico, tutoriais, discussões de dev)
+
+RESPONDA APENAS O NÚMERO, SEM TEXTO ADICIONAL.`;
+
+    const model = "gemini-2.0-flash-lite";
+
+    try {
+      const response = await this.ai.models.generateContent({
+        model,
+        contents: [{ role: "user", parts: [{ text: prompt }] }],
+      });
+
+      if (!response.text) {
+        this.logger.warn(
+          "Empty response from Gemini tech analysis, defaulting to 0",
+        );
+        return 0;
+      }
+
+      const score = Number.parseInt(response.text.trim(), 10);
+
+      if (Number.isNaN(score) || score < 0 || score > 100) {
+        this.logger.warn("Invalid score from Gemini, defaulting to 0", {
+          responseText: response.text,
+        });
+        return 0;
+      }
+
+      return score;
+    } catch (error) {
+      this.logger.error("Error analyzing tech relevance", { error });
+      return 0; // On error, assume not tech-related (safe default)
+    }
   }
 }
