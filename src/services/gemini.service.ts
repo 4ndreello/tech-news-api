@@ -1,6 +1,7 @@
 import { inject, singleton } from "tsyringe";
 import { GoogleGenAI } from "@google/genai";
 import { LoggerService } from "./logger.service";
+import { GeminiPrompts } from "../prompts/gemini-prompts";
 
 @singleton()
 export class GeminiService {
@@ -22,7 +23,7 @@ export class GeminiService {
    * @returns IA resume
    */
   async summarize(text: string, maxTokens: number = 1024): Promise<string> {
-    const prompt = `Resuma o texto abaixo em um parágrafo claro, objetivo e SEM ENROLAÇÃO, em português do Brasil. Não repita o título. Foque no conteúdo relevante para tecnologia e desenvolvimento. Use até 14 frases.\n\n${text}`;
+    const prompt = GeminiPrompts.summarize(text);
 
     const response = await this.ai.models.generateContent({
       model: this.geminiModel,
@@ -49,18 +50,7 @@ export class GeminiService {
    * @returns Score from 0-100 (100 = definitely tech-related)
    */
   async analyzeTechRelevance(title: string, body: string): Promise<number> {
-    const prompt = `Analise se o conteúdo abaixo é relacionado a TECNOLOGIA (programação, desenvolvimento, software, hardware, IA, cloud, DevOps, engenharia de software, ciência da computação, segurança digital, etc).
-
-TÍTULO: ${title}
-
-CONTEÚDO: ${body.slice(0, 2000)}
-
-Responda APENAS com um número de 0 a 100:
-- 0-30: Não é sobre tecnologia (política, economia, investimentos, notícias gerais)
-- 31-60: Parcialmente relacionado (menção superficial a tech)
-- 61-100: Claramente sobre tecnologia (conteúdo técnico, tutoriais, discussões de dev)
-
-RESPONDA APENAS O NÚMERO, SEM TEXTO ADICIONAL.`;
+    const prompt = GeminiPrompts.analyzeTechRelevance(title, body);
 
     try {
       const response = await this.ai.models.generateContent({
