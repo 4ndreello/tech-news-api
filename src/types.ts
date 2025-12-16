@@ -34,6 +34,7 @@ export interface NewsItem {
   owner_username?: string; // TabNews owner
   body?: string; // Markdown content
   commentCount?: number;
+  techScore?: number; // AI-based tech relevance score (0-100)
 }
 
 export type ViewMode = "mix" | "tabnews" | "hackernews";
