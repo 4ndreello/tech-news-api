@@ -5,6 +5,7 @@ import { LoggerService } from "./logger.service";
 @singleton()
 export class GeminiService {
   private readonly ai: GoogleGenAI;
+  private readonly geminiModel = "gemini-2.0-flash-lite";
 
   constructor(@inject(LoggerService) private logger: LoggerService) {
     const apiKey = process.env.GEMINI_API_KEY;
@@ -22,10 +23,9 @@ export class GeminiService {
    */
   async summarize(text: string, maxTokens: number = 1024): Promise<string> {
     const prompt = `Resuma o texto abaixo em um parágrafo claro, objetivo e SEM ENROLAÇÃO, em português do Brasil. Não repita o título. Foque no conteúdo relevante para tecnologia e desenvolvimento. Use até 14 frases.\n\n${text}`;
-    const model = "gemini-2.0-flash-lite";
 
     const response = await this.ai.models.generateContent({
-      model,
+      model: this.geminiModel,
       contents: [{ role: "user", parts: [{ text: prompt }] }],
     });
 
@@ -62,11 +62,9 @@ Responda APENAS com um número de 0 a 100:
 
 RESPONDA APENAS O NÚMERO, SEM TEXTO ADICIONAL.`;
 
-    const model = "gemini-2.0-flash-lite";
-
     try {
       const response = await this.ai.models.generateContent({
-        model,
+        model: this.geminiModel,
         contents: [{ role: "user", parts: [{ text: prompt }] }],
       });
 
