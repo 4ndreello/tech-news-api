@@ -5,6 +5,7 @@ import { HackerNewsService } from "./hackernews.service";
 import { RankingService } from "./ranking.service";
 import { CacheService } from "./cache.service";
 import { CacheKey } from "../types";
+import { LoggerService } from "./logger.service";
 
 @singleton()
 export class SmartMixService {
@@ -15,8 +16,13 @@ export class SmartMixService {
     @inject(HackerNewsService) private hackerNewsService: HackerNewsService,
     @inject(RankingService) private rankingService: RankingService,
     @inject(CacheService) private cacheService: CacheService,
+    @inject(LoggerService) private logger: LoggerService,
   ) {}
 
+  /**
+   * Fetches and mixes news from both sources
+   * Uses cache to avoid repeated fetches
+   */
   async fetchMix(): Promise<NewsItem[]> {
     const cached = await this.cacheService.get<NewsItem[]>(CacheKey.SmartMix);
     if (cached) return cached;
@@ -36,9 +42,10 @@ export class SmartMixService {
   }
 
   private async doFetchAndRank(): Promise<NewsItem[]> {
+    // Fetch first page from each source
     const [tabNewsResults, hnResults] = await Promise.allSettled([
-      this.tabNewsService.fetchNews(),
-      this.hackerNewsService.fetchNews(),
+      this.tabNewsService.fetchPage(1),
+      this.hackerNewsService.fetchBatch(0),
     ]);
 
     const tabNews =
@@ -54,44 +61,40 @@ export class SmartMixService {
 
     // Rank items and replace score field with our normalized score
     const sortedTab = [...tabNews]
-      .sort(
-        (a, b) =>
-          this.rankingService.calculateRank(b) -
-          this.rankingService.calculateRank(a),
-      )
-      .slice(0, 100)
       .map((item) => ({
         ...item,
-        score: this.rankingService.calculateRank(item), // Replace original score with our normalized rank
-      }));
+        score: this.rankingService.calculateRank(item),
+      }))
+      .sort((a, b) => b.score - a.score);
 
     const sortedHn = [...hn]
-      .sort(
-        (a, b) =>
-          this.rankingService.calculateRank(b) -
-          this.rankingService.calculateRank(a),
-      )
-      .slice(0, 100)
       .map((item) => ({
         ...item,
-        score: this.rankingService.calculateRank(item), // Replace original score with our normalized rank
-      }));
+        score: this.rankingService.calculateRank(item),
+      }))
+      .sort((a, b) => b.score - a.score);
 
-    const topTab = sortedTab;
-    const topHn = sortedHn;
-
+    // Interleave 1:1 (TabNews, HN, TabNews, HN...)
     const mixed: NewsItem[] = [];
-    const maxLength = Math.max(topTab.length, topHn.length);
+    const maxLength = Math.max(sortedTab.length, sortedHn.length);
 
     for (let i = 0; i < maxLength; i++) {
-      if (i < topTab.length && topTab[i]) mixed.push(topTab[i]);
-      if (i < topHn.length && topHn[i]) mixed.push(topHn[i]);
+      if (i < sortedTab.length) mixed.push(sortedTab[i]);
+      if (i < sortedHn.length) mixed.push(sortedHn[i]);
     }
+
+    this.logger.info(
+      `SmartMix: mixed ${mixed.length} items (${sortedTab.length} TabNews + ${sortedHn.length} HN)`,
+    );
 
     await this.cacheService.set(CacheKey.SmartMix, mixed);
     return mixed;
   }
 
+  /**
+   * Legacy method for backward compatibility
+   * @deprecated
+   */
   async fetchMixPaginated(
     limit: number,
     after?: string,

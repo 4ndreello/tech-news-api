@@ -13,7 +13,6 @@ export class CacheService {
   private redis: Redis | null = null;
   private memoryCache: Record<string, CacheEntry<any>> = {};
   private readonly CACHE_DURATION_SECONDS = 5 * 60; // 5 minutes
-  private readonly HIGHLIGHTS_CACHE_DURATION_SECONDS = 45 * 60; // 45 minutes
   private valkeyAvailable = false;
 
   constructor(@inject(LoggerService) private logger: LoggerService) {
@@ -55,13 +54,13 @@ export class CacheService {
 
       this.redis.on("close", () => {
         this.logger.warn(
-          "Valkey connection closed, falling back to in-memory cache",
+          "Valkey connection closed, falling back to in-memory cache"
         );
         this.valkeyAvailable = false;
       });
     } else {
       this.logger.warn(
-        "VALKEY_HOST not configured, using in-memory cache only (dev mode)",
+        "VALKEY_HOST not configured, using in-memory cache only (dev mode)"
       );
     }
   }
@@ -136,7 +135,7 @@ export class CacheService {
 
     // Always clear memory cache
     Object.keys(this.memoryCache).forEach(
-      (key) => delete this.memoryCache[key],
+      (key) => delete this.memoryCache[key]
     );
   }
 
@@ -147,8 +146,6 @@ export class CacheService {
   }
 
   private getCacheDurationSeconds(key: string): number {
-    if (key === CacheKey.Highlights)
-      return this.HIGHLIGHTS_CACHE_DURATION_SECONDS;
     return this.CACHE_DURATION_SECONDS;
   }
 

@@ -6,7 +6,6 @@ import { logger } from "./logger";
 import { loggingMiddleware } from "./middleware/logging";
 import { FeedService } from "./services/feed.service";
 import { HackerNewsService } from "./services/hackernews.service";
-import { HighlightsService } from "./services/highlights.service";
 import { SmartMixService } from "./services/smartmix.service";
 import {
   getServicesStatus,
@@ -30,7 +29,7 @@ app.use(
       "https://news.andreello.dev.br",
     ],
     credentials: true,
-  }),
+  })
 );
 
 // health check endpoint
@@ -65,7 +64,7 @@ app.get("/api/news/tabnews", async (c) => {
         error:
           error instanceof Error ? error.message : "Erro ao carregar TabNews",
       },
-      500,
+      500
     );
   }
 });
@@ -89,12 +88,12 @@ app.get("/api/news/hackernews", async (c) => {
             ? error.message
             : "Erro ao carregar Hacker News",
       },
-      500,
+      500
     );
   }
 });
 
-// Get unified feed (interleaved news + highlights with 5:1 ratio)
+// Get unified feed (news from TabNews, HackerNews, and Dev.to)
 app.get("/api/feed", async (c) => {
   try {
     const feedService = container.resolve(FeedService);
@@ -123,7 +122,7 @@ app.get("/api/feed", async (c) => {
       {
         error: error instanceof Error ? error.message : "Failed to load feed",
       },
-      500,
+      500
     );
   }
 });
@@ -154,7 +153,7 @@ app.get("/api/comments/:username/:slug", async (c) => {
             ? error.message
             : "Erro ao carregar comentários",
       },
-      500,
+      500
     );
   }
 });
@@ -174,7 +173,7 @@ app.get("/api/services/status", async (c) => {
       {
         error: "Falha ao carregar status dos serviços",
       },
-      500,
+      500
     );
   }
 });
@@ -193,7 +192,7 @@ app.notFound((c) => {
         "GET /api/services/status",
       ],
     },
-    404,
+    404
   );
 });
 

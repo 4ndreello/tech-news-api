@@ -9,42 +9,70 @@ import { LoggerService } from "./logger.service";
 export class TabNewsService {
   private readonly TABNEWS_API = "https://www.tabnews.com.br/api/v1/contents";
   private readonly MIN_TECH_SCORE = 61; // Minimum score to consider tech-related
-  private fetchLock: Promise<NewsItem[]> | null = null;
+  private readonly PER_PAGE = 30; // Items per page from TabNews API
+  private fetchLocks: Map<number, Promise<NewsItem[]>> = new Map(); // Lock per page
 
   constructor(
     @inject(CacheService) private cacheService: CacheService,
     @inject(GeminiService) private geminiService: GeminiService,
-    @inject(LoggerService) private logger: LoggerService,
+    @inject(LoggerService) private logger: LoggerService
   ) {}
 
-  async fetchNews(): Promise<NewsItem[]> {
-    const cached = await this.cacheService.get<NewsItem[]>(CacheKey.TabNews);
-    if (cached) return cached;
-
-    if (this.fetchLock) {
-      return this.fetchLock;
+  /**
+   * Fetches a single page of TabNews content with lock protection
+   * @param page - Page number to fetch (1-indexed)
+   * @returns Array of filtered NewsItems from that page
+   */
+  async fetchPage(page: number): Promise<NewsItem[]> {
+    // Check cache first
+    const cacheKey = `${CacheKey.TabNews}:page:${page}`;
+    const cached = await this.cacheService.get<NewsItem[]>(cacheKey);
+    if (cached) {
+      this.logger.info(`TabNews page ${page} served from cache`);
+      return cached;
     }
 
-    this.fetchLock = this.doFetch();
+    // Check if there's already a fetch in progress for this page
+    const existingLock = this.fetchLocks.get(page);
+    if (existingLock) {
+      this.logger.info(
+        `TabNews page ${page} fetch already in progress, waiting...`
+      );
+      return existingLock;
+    }
+
+    // Create new fetch promise with lock
+    const fetchPromise = this.doFetchPage(page);
+    this.fetchLocks.set(page, fetchPromise);
 
     try {
-      const result = await this.fetchLock;
+      const result = await fetchPromise;
       return result;
     } finally {
-      this.fetchLock = null;
+      this.fetchLocks.delete(page);
     }
   }
 
-  private async doFetch(): Promise<NewsItem[]> {
-    const res = await fetch(`${this.TABNEWS_API}?strategy=relevant`);
-    if (!res.ok) throw new Error("Falha ao carregar TabNews");
-    const data = (await res.json()) as TabNewsItem[];
+  private async doFetchPage(page: number): Promise<NewsItem[]> {
+    this.logger.info(`Fetching TabNews page ${page}...`);
 
-    this.logger.info(
-      `Fetched ${data.length} posts from TabNews, analyzing with AI...`,
+    const res = await fetch(
+      `${this.TABNEWS_API}?strategy=relevant&page=${page}&per_page=${this.PER_PAGE}`
     );
 
-    // Map to NewsItem first
+    if (!res.ok) {
+      this.logger.error(`Failed to fetch TabNews page ${page}`);
+      return [];
+    }
+
+    const data = (await res.json()) as TabNewsItem[];
+
+    if (data.length === 0) {
+      this.logger.info(`TabNews page ${page} is empty`);
+      return [];
+    }
+
+    // Map to NewsItem
     const mapped = data.map((item) => ({
       id: item.id,
       title: item.title,
@@ -59,15 +87,25 @@ export class TabNewsService {
       commentCount: item.children_deep_count,
     }));
 
-    // Filter by tech relevance using AI (parallel analysis)
+    // Filter by tech relevance using AI
     const filtered = await this.filterByTechRelevance(mapped);
 
     this.logger.info(
-      `AI filtered: ${filtered.length}/${mapped.length} posts are tech-related`,
+      `TabNews page ${page}: ${filtered.length}/${mapped.length} posts are tech-related`
     );
 
-    await this.cacheService.set(CacheKey.TabNews, filtered);
+    // Cache this page for 5 minutes
+    const cacheKey = `${CacheKey.TabNews}:page:${page}`;
+    await this.cacheService.set(cacheKey, filtered);
     return filtered;
+  }
+
+  /**
+   * Legacy method for backward compatibility - fetches first page only
+   * @deprecated Use fetchPage() instead for better control
+   */
+  async fetchNews(): Promise<NewsItem[]> {
+    return this.fetchPage(1);
   }
 
   /**
@@ -88,7 +126,7 @@ export class TabNewsService {
         // Analyze with AI
         score = await this.geminiService.analyzeTechRelevance(
           item.title,
-          item.body || "",
+          item.body || ""
         );
 
         // Cache score for 24 hours (86400 seconds)
