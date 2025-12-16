@@ -2,13 +2,20 @@ import { inject, singleton } from "tsyringe";
 import type { ArticleWithAuthor, DevToArticle, NewsItem } from "../types";
 import { Source } from "../types";
 import { LoggerService } from "./logger.service";
+import { GeminiService } from "./gemini.service";
+import { CacheService } from "./cache.service";
 
 @singleton()
 export class DevToService {
   private readonly API_URL = "https://dev.to/api";
   private readonly apiKey: string | undefined;
+  private readonly MIN_TECH_SCORE = 61; // Minimum score to consider tech-related
 
-  constructor(@inject(LoggerService) private logger: LoggerService) {
+  constructor(
+    @inject(LoggerService) private logger: LoggerService,
+    @inject(GeminiService) private geminiService: GeminiService,
+    @inject(CacheService) private cacheService: CacheService
+  ) {
     this.apiKey = process.env.DEV_TO_KEY;
 
     if (this.apiKey) {
@@ -127,16 +134,60 @@ export class DevToService {
         };
       });
 
-      this.logger.info("converted Dev.to articles to news items", {
-        count: newsItems.length,
-      });
+      // Filter by tech relevance using AI
+      const techFiltered = await this.filterByTechRelevance(newsItems);
 
-      return newsItems;
+      this.logger.info(
+        `Dev.to: ${techFiltered.length}/${newsItems.length} articles are tech-related`
+      );
+
+      return techFiltered;
     } catch (error) {
       this.logger.error("error fetching Dev.to news", {
         error: error instanceof Error ? error.message : String(error),
       });
       return [];
     }
+  }
+
+  /**
+   * Filters news items by tech relevance using AI analysis
+   * Uses cached scores when available to reduce API calls
+   */
+  private async filterByTechRelevance(items: NewsItem[]): Promise<NewsItem[]> {
+    const analysisPromises = items.map(async (item) => {
+      // Check if we have cached score for this post
+      const cacheKey = `tech-score:devto:${item.id}`;
+      const cachedScore = await this.cacheService.get<number>(cacheKey);
+
+      let score: number;
+      if (cachedScore !== null) {
+        score = cachedScore;
+      } else {
+        // Analyze with AI (title + body if available)
+        score = await this.geminiService.analyzeTechRelevance(
+          item.title,
+          item.body || ""
+        );
+
+        // Cache score for 24 hours (86400 seconds)
+        await this.cacheService.set(cacheKey, score, 86400);
+      }
+
+      return { item, score };
+    });
+
+    // Wait for all analyses to complete
+    const results = await Promise.all(analysisPromises);
+
+    // Filter items with score >= MIN_TECH_SCORE and attach techScore to each item
+    const filtered = results
+      .filter(({ score }) => score >= this.MIN_TECH_SCORE)
+      .map(({ item, score }) => ({
+        ...item,
+        techScore: score, // Add AI score to NewsItem for ranking
+      }));
+
+    return filtered;
   }
 }
