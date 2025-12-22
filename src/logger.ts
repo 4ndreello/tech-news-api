@@ -1,7 +1,7 @@
 import pino from "pino";
 
 export interface Logger {
-  log: (message: string, metadata?: Record<string, unknown>) => void;
+  debug: (message: string, metadata?: Record<string, unknown>) => void;
   info: (message: string, metadata?: Record<string, unknown>) => void;
   warn: (message: string, metadata?: Record<string, unknown>) => void;
   error: (message: string, metadata?: Record<string, unknown>) => void;
@@ -36,8 +36,8 @@ export const createLogger = (options: CreateLoggerOptions = {}): Logger => {
     });
 
     return {
-      log: (message: string, metadata = {}) =>
-        devLogger.info({ context: "Application", ...metadata }, message),
+      debug: (message: string, metadata = {}) =>
+        devLogger.debug({ context: "Application", ...metadata }, message),
       info: (message: string, metadata = {}) =>
         devLogger.info({ context: "Application", ...metadata }, message),
       warn: (message: string, metadata = {}) =>
@@ -85,7 +85,7 @@ export const createLogger = (options: CreateLoggerOptions = {}): Logger => {
   });
 
   return {
-    log: (message: string, metadata = {}) => {
+    debug: (message: string, metadata = {}) => {
       prodLogger.info(
         {
           correlationId,
