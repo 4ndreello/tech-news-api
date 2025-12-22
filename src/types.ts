@@ -218,11 +218,20 @@ export interface LobstersItem {
   tags: string[];
 }
 
-// Feed item type - only news items
+// feed item type - only news items
 export type FeedItem = { type: "news" } & NewsItem;
 
-// Response do endpoint /api/feed
+// status of each news source
+export interface SourceStatus {
+  name: Source;
+  ok: boolean;
+  error?: string;
+  itemCount: number;
+}
+
+// response from the /api/feed endpoint
 export interface FeedResponse {
   items: FeedItem[];
   nextCursor: string | null;
+  sources: SourceStatus[];
 }

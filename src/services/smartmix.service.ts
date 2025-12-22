@@ -16,7 +16,7 @@ export class SmartMixService {
     @inject(HackerNewsService) private hackerNewsService: HackerNewsService,
     @inject(RankingService) private rankingService: RankingService,
     @inject(CacheService) private cacheService: CacheService,
-    @inject(LoggerService) private logger: LoggerService,
+    @inject(LoggerService) private logger: LoggerService
   ) {}
 
   /**
@@ -84,7 +84,7 @@ export class SmartMixService {
     }
 
     this.logger.info(
-      `SmartMix: mixed ${mixed.length} items (${sortedTab.length} TabNews + ${sortedHn.length} HN)`,
+      `SmartMix: mixed ${mixed.length} items (${sortedTab.length} TabNews + ${sortedHn.length} HN)`
     );
 
     await this.cacheService.set(CacheKey.SmartMix, mixed);
@@ -97,7 +97,7 @@ export class SmartMixService {
    */
   async fetchMixPaginated(
     limit: number,
-    after?: string,
+    after?: string
   ): Promise<{ items: NewsItem[]; nextCursor: string | null }> {
     const allItems = await this.fetchMix();
 
