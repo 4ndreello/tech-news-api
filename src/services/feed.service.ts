@@ -24,36 +24,23 @@ export class FeedService {
       this.lobstersService.fetchNews(),
     ]);
 
-    const mixNews = mixResult.status === "fulfilled" ? mixResult.value : [];
-    const devToNews =
-      devToResult.status === "fulfilled" ? devToResult.value : [];
-    const lobstersNews =
-      lobstersResult.status === "fulfilled" ? lobstersResult.value : [];
+    const handleResult = (
+      result: PromiseSettledResult<NewsItem[]>,
+      sourceName: string
+    ): NewsItem[] => {
+      if (result.status === "fulfilled") return result.value;
+      this.logger.error(`failed to fetch ${sourceName} news for feed`, {
+        error:
+          result.reason instanceof Error
+            ? result.reason.message
+            : String(result.reason),
+      });
+      return [];
+    };
 
-    if (mixResult.status === "rejected") {
-      this.logger.error("failed to fetch mix news for feed", {
-        error:
-          mixResult.reason instanceof Error
-            ? mixResult.reason.message
-            : String(mixResult.reason),
-      });
-    }
-    if (devToResult.status === "rejected") {
-      this.logger.error("failed to fetch dev.to news for feed", {
-        error:
-          devToResult.reason instanceof Error
-            ? devToResult.reason.message
-            : String(devToResult.reason),
-      });
-    }
-    if (lobstersResult.status === "rejected") {
-      this.logger.error("failed to fetch lobsters news for feed", {
-        error:
-          lobstersResult.reason instanceof Error
-            ? lobstersResult.reason.message
-            : String(lobstersResult.reason),
-      });
-    }
+    const mixNews = handleResult(mixResult, "mix");
+    const devToNews = handleResult(devToResult, "dev.to");
+    const lobstersNews = handleResult(lobstersResult, "lobsters");
 
     // Merge all news sources
     const allNews = [...mixNews, ...devToNews, ...lobstersNews];
