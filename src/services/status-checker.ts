@@ -16,7 +16,7 @@ let backgroundTaskId: Timer | null = null;
  */
 async function fetchWithTimeout(
   url: string,
-  timeout = REQUEST_TIMEOUT,
+  timeout = REQUEST_TIMEOUT
 ): Promise<Response> {
   const controller = new AbortController();
   const timeoutId = setTimeout(() => controller.abort(), timeout);
@@ -42,7 +42,7 @@ async function fetchWithTimeout(
 async function checkGitHub(): Promise<ServiceStatusType> {
   try {
     const response = await fetchWithTimeout(
-      "https://www.githubstatus.com/api/v2/status.json",
+      "https://www.githubstatus.com/api/v2/status.json"
     );
     if (!response.ok) return ServiceStatusType.Degraded;
 
@@ -69,7 +69,7 @@ async function checkGitHub(): Promise<ServiceStatusType> {
 async function checkCloudflare(): Promise<ServiceStatusType> {
   try {
     const response = await fetchWithTimeout(
-      "https://www.cloudflarestatus.com/api/v2/status.json",
+      "https://www.cloudflarestatus.com/api/v2/status.json"
     );
     if (!response.ok) return ServiceStatusType.Degraded;
 
@@ -96,7 +96,7 @@ async function checkCloudflare(): Promise<ServiceStatusType> {
 async function checkVercel(): Promise<ServiceStatusType> {
   try {
     const response = await fetchWithTimeout(
-      "https://www.vercel-status.com/api/v2/status.json",
+      "https://www.vercel-status.com/api/v2/status.json"
     );
     if (!response.ok) return ServiceStatusType.Degraded;
 
@@ -122,7 +122,7 @@ async function checkVercel(): Promise<ServiceStatusType> {
  */
 async function checkServiceByPing(
   url: string,
-  serviceName: string,
+  serviceName: string
 ): Promise<ServiceStatusType> {
   try {
     const response = await fetchWithTimeout(url);

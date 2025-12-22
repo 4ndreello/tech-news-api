@@ -1,6 +1,7 @@
 import { singleton, inject } from "tsyringe";
 import { SmartMixService } from "./smartmix.service";
 import { DevToService } from "./devto.service";
+import { LobstersService } from "./lobsters.service";
 import { LoggerService } from "./logger.service";
 import type { NewsItem, FeedItem, FeedResponse } from "../types";
 
@@ -9,6 +10,7 @@ export class FeedService {
   constructor(
     @inject(SmartMixService) private smartMixService: SmartMixService,
     @inject(DevToService) private devToService: DevToService,
+    @inject(LobstersService) private lobstersService: LobstersService,
     @inject(LoggerService) private logger: LoggerService
   ) {}
 
@@ -16,14 +18,17 @@ export class FeedService {
     this.logger.info("fetching unified feed", { limit, after });
 
     // Fetch news from all sources in parallel
-    const [mixResult, devToResult] = await Promise.allSettled([
+    const [mixResult, devToResult, lobstersResult] = await Promise.allSettled([
       this.smartMixService.fetchMix(),
       this.devToService.fetchNews(),
+      this.lobstersService.fetchNews(),
     ]);
 
     const mixNews = mixResult.status === "fulfilled" ? mixResult.value : [];
     const devToNews =
       devToResult.status === "fulfilled" ? devToResult.value : [];
+    const lobstersNews =
+      lobstersResult.status === "fulfilled" ? lobstersResult.value : [];
 
     if (mixResult.status === "rejected") {
       this.logger.error("failed to fetch mix news for feed", {
@@ -41,15 +46,24 @@ export class FeedService {
             : String(devToResult.reason),
       });
     }
+    if (lobstersResult.status === "rejected") {
+      this.logger.error("failed to fetch lobsters news for feed", {
+        error:
+          lobstersResult.reason instanceof Error
+            ? lobstersResult.reason.message
+            : String(lobstersResult.reason),
+      });
+    }
 
     // Merge all news sources
-    const allNews = [...mixNews, ...devToNews];
+    const allNews = [...mixNews, ...devToNews, ...lobstersNews];
 
     // Separate by source and sort each by score
     const bySource: Record<string, NewsItem[]> = {
       TabNews: [],
       HackerNews: [],
       DevTo: [],
+      Lobsters: [],
     };
 
     allNews.forEach((news) => {
@@ -68,7 +82,8 @@ export class FeedService {
     const maxLength = Math.max(
       bySource.TabNews.length,
       bySource.HackerNews.length,
-      bySource.DevTo.length
+      bySource.DevTo.length,
+      bySource.Lobsters.length
     );
 
     for (let i = 0; i < maxLength; i++) {
@@ -81,11 +96,15 @@ export class FeedService {
       if (i < bySource.DevTo.length) {
         interleaved.push(bySource.DevTo[i]);
       }
+      if (i < bySource.Lobsters.length) {
+        interleaved.push(bySource.Lobsters[i]);
+      }
     }
 
     this.logger.info("merged and interleaved news from all sources", {
       mixNews: mixNews.length,
       devToNews: devToNews.length,
+      lobstersNews: lobstersNews.length,
       total: interleaved.length,
     });
 
