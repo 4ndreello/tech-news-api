@@ -6,6 +6,10 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 TechNews API is a backend service built with **Hono** and **Bun** that aggregates tech news from multiple sources (TabNews, Hacker News, Dev.to) and provides AI-curated highlights. The API applies intelligent ranking algorithms and smart mixing to deliver high-quality, diverse content.
 
+Uses a **dual MongoDB strategy**:
+- **Data Warehouse** (raw_news, ranked_news, mixed_feed): Permanent storage for historical analysis and trends
+- **L2 Cache** (cache_entries): Temporary cache with TTL for fast fallback
+
 ## Commands
 
 ### Development
@@ -95,7 +99,9 @@ Services follow a clear separation of concerns:
      - Caches highlights for 10 minutes (vs 5 minutes for news)
 
 4. **Infrastructure Services**
-   - `CacheService`: Valkey-based caching with TTL via GCP Memorystore (5min news, 10min highlights)
+   - `CacheService`: Hybrid L1 (in-memory) + L2 (MongoDB) caching with intelligent TTLs
+   - `MongoDBCacheService`: L2 temporary cache with TTL expiration (5-15 min for news, 2h-7d for scores)
+   - `DataWarehouseService`: Persistent MongoDB storage for raw/ranked/mixed data (no TTL, permanent)
    - `GeminiService`: Google Gemini AI integration for content analysis
    - `LinkScraperService`: Extracts metadata from URLs
    - `LoggerService`: Request-scoped logging with correlation IDs
@@ -115,75 +121,117 @@ Legacy endpoints (no pagination):
 - `GET /api/comments/:username/:slug` - TabNews comments for a post
 - `GET /api/services/status` - External services health status
 
-### Caching Strategy
+### MongoDB: Dual-Purpose Architecture
 
-The `CacheService` (`src/services/cache.service.ts`) provides **Valkey-based caching** with automatic expiration using GCP Memorystore:
+**Two separate MongoDB instances (or databases within same cluster):**
+
+#### 1. Data Warehouse (`tech_news_warehouse`) - PERMANENT STORAGE
+**Purpose:** Historical archive for analytics, trends, and historical queries
+
+**Collections:**
+- `raw_news`: Original API responses (never deleted)
+  - _id: `{source}:{itemId}` (e.g., "hackernews:12345")
+  - Indexed: `{source, fetchedAt}`, `{fetchedAt}`, `{data.publishedAt}`
+  
+- `ranked_news`: News items with calculated scores and ranking
+  - _id: `{source}:ranked:{itemId}`
+  - Contains: `rank`, `score`, `rankedAt` (for time-series analysis)
+  - Indexed: `{source, rank}`, `{score}`, `{source, rankedAt}`
+  
+- `mixed_feed`: Final mixed/interleaved feed snapshots
+  - _id: `mixed:{timestamp}`
+  - Complete feed at point in time for reproducibility
+
+**Use Cases:**
+- Analytics dashboard: "Top 100 articles from last 30 days"
+- Trending analysis: "What was trending last week vs today?"
+- Historical comparisons: "How rankings changed over time?"
+- Audit trail: "What feed was shown to users at time X?"
+
+#### 2. L2 Cache (`tech_news_cache`) - TEMPORARY CACHE WITH TTL
+**Purpose:** Fast fallback for server restarts, reduces API calls
+
+**Collections:**
+- `cache_entries`: Temporary cache with auto-expiration
+  - TTL Index: Auto-deletes expired entries
+  - News data: 15 min TTL (L2, can fall back to L1 or API)
+  - Tech scores: 7 days TTL (expensive to recalculate)
+  - Comments: 30 min TTL
+
+**Use Cases:**
+- Server restart: Load fresh cache from L2 instead of re-fetching APIs
+- Reduced API calls: Cache queries that just expired from L1
+
+### Hybrid Caching Strategy (L1 + L2)
+
+The `CacheService` implements a **two-tier caching system**:
+
+**Architecture:**
+```
+┌─────────────────────────────────────────────────────┐
+│ Request for Cache Key                               │
+├─────────────────────────────────────────────────────┤
+│ ↓                                                   │
+│ L1: In-Memory Cache (JavaScript object)             │
+│     - Very fast (<1ms), local to process            │
+│     - Expires based on TTL (3 min - 2 hours)        │
+│ ↓ (miss)                                            │
+│ L2: MongoDB L2 Cache (persistent, fallback)         │
+│     - Slower (5-50ms), but survives restart         │
+│     - Longer TTL (15 min - 7 days)                  │
+│ ↓ (miss)                                            │
+│ Fetch from API and populate all tiers               │
+└─────────────────────────────────────────────────────┘
+```
+
+**TTL Configuration by Data Type:**
+
+| Data Type | L1 TTL | L2 TTL | Rationale |
+|-----------|--------|--------|-----------|
+| News Data (TabNews, HackerNews, DevTo, Lobsters) | 3 min | 15 min | Fresh content, but fallback for restart |
+| Tech Scores (AI analysis) | 2 hours | 7 days | Expensive to recalculate, cache longer |
+| Comments | 5 min | 30 min | Less frequently updated |
 
 **How it works:**
-- Uses `ioredis` client to connect to GCP Memorystore (Valkey)
-- `async get<T>(key: string)`: Returns cached data or `null` if expired/missing
-- `async set<T>(key: string, data: T)`: Stores data with automatic TTL using `SETEX`
-- `async clear()`: Flushes all keys in the current database
-- `async disconnect()`: Gracefully closes Valkey connection
-- Automatic retry strategy with exponential backoff (max 2s delay)
+1. `get()` tries L1 → L2 in order, returning first hit
+2. `set()` writes to both tiers simultaneously
+3. If L1 expires but L2 has data → L2 populates L1 (rehydration)
+4. L2 uses MongoDB TTL indexes for automatic expiration (no manual cleanup needed)
 
-**Configuration via Environment Variables:**
-- `VALKEY_HOST`: Memorystore instance IP (required)
-- `VALKEY_PORT`: Port number (default: 6379)
-- `VALKEY_PASSWORD`: Auth password (optional, disabled by default in GCP)
-- `VALKEY_DB`: Database number (default: 0)
+**When to use custom TTL:**
+```typescript
+// Default TTL based on key pattern
+await cacheService.set(key, data);
 
-**TTL Configuration:**
-- **News**: 5 minutes (TabNews, Hacker News) - `CACHE_DURATION_SECONDS`
-- **Highlights**: 10 minutes (AI-processed content) - `HIGHLIGHTS_CACHE_DURATION_SECONDS`
-- Cache keys defined in `src/types.ts` (`CacheKey` enum: `TabNews`, `HackerNews`, `TabNewsComments`, `Highlights`, `SmartMix`)
+// Custom TTL (example: 1 hour)
+await cacheService.set(key, data, 3600);
+```
 
-**Important notes:**
-- Cache is **persistent** across server restarts (Valkey-backed)
-- All cache operations are **asynchronous** - services must use `await`
-- Connection errors are logged but don't crash the application
-- Retry logic handles temporary network issues
-- AUTH is **disabled by default** in GCP Memorystore (secure via VPC isolation)
-- Pattern: `await` cache check → If null, fetch from API → `await` cache store → Return data
+**Implementation Details:**
+- `CacheService` coordinates both tiers (`src/services/cache.service.ts`)
+- `MongoDBCacheService` handles L2 persistence (`src/services/mongodb-cache.service.ts`)
+- `DataWarehouseService` handles permanent data (`src/services/data-warehouse.service.ts`)
+- Graceful degradation: if MongoDB is down, falls back to L1 only
+- If all tiers fail, service fetches from API
 
-### Error Handling
-
-- All route handlers wrap logic in try-catch
-- Errors are logged with correlation IDs and stack traces
-- HTTP responses use appropriate status codes (400, 404, 500)
-- Partial failures in aggregation services use `Promise.allSettled()` to gracefully degrade
-
-### Types
-
-All TypeScript types are centralized in `src/types.ts`:
-- `NewsItem`: Unified news article interface across sources
-- `Highlight`: AI-curated highlight from Twitter/Reddit/Dev.to
-- `Source`: Enum for news sources (TabNews, HackerNews)
-- `CacheKey`: Enum for cache key names
-- External API types: `TabNewsItem`, `HackerNewsItem`, `RedditPost`, `TwitterTweet`, `DevToArticle`
-
-### CORS Configuration
-
-Configured in `src/index.ts` to allow:
-- `http://localhost:3000` (local development)
-- `http://0.0.0.0:3000`
-- `https://tech-news-front-361874528796.southamerica-east1.run.app` (GCP Cloud Run)
-- `https://news.andreello.dev.br` (production domain)
-
-## Environment Variables
+### Environment Variables
 
 Copy `.env.example` to `.env` and configure:
-- `PORT`: Server port (default: 8080)
-- **Valkey (GCP Memorystore)**:
-  - `VALKEY_HOST`: Memorystore instance IP address (required)
-  - `VALKEY_PORT`: Port (default: 6379)
-  - `VALKEY_PASSWORD`: Authentication password (optional, disabled by default)
-  - `VALKEY_DB`: Database number (default: 0)
+
+**Cache Configuration:**
+- `MONGODB_URI`: MongoDB connection string (free tier via MongoDB Atlas)
+  - Example: `mongodb+srv://user:pass@cluster0.xxxxx.mongodb.net/?retryWrites=true&w=majority`
+  - Required for L2 caching and data warehouse
+
+**API Keys:**
+- `GEMINI_API_KEY`: Google Gemini API key for AI processing
 - `TWITTER_BEARER_TOKEN`: Twitter API bearer token (for highlights)
 - `TWITTER_API_KEY`, `TWITTER_API_SECRET`: Twitter API credentials
-- `GEMINI_API_KEY`: Google Gemini API key for AI processing
 
-## Testing Conventions
+**Server:**
+- `PORT`: Server port (default: 8080)
+
+### Testing Conventions
 
 - Tests use Vitest with TypeScript
 - Must import `"reflect-metadata"` at top of test files
@@ -201,6 +249,7 @@ Copy `.env.example` to `.env` and configure:
 4. Update `SmartMixService` to include new source in `fetchMix()`
 5. Add route in `src/index.ts` (optional: individual endpoint for just this source)
 6. Update cache key in `CacheKey` enum if needed
+7. Optionally: Add to `DataWarehouseService` for permanent storage
 
 ### Adding a New API Endpoint
 
@@ -222,6 +271,44 @@ Copy `.env.example` to `.env` and configure:
   - `MAX_IDEAL_HOURS`: Maximum age before decay (default: 5 days)
   - `GRAVITY`: Decay rate for old posts (default: 1.8)
 
+### Adjusting Cache TTLs
+
+Edit `getCacheDurationSeconds()` in `MongoDBCacheService` to modify L2 TTLs, and `getCacheDurationSeconds()` in `CacheService` to modify L1 TTLs:
+
+```typescript
+// In CacheService (L1 TTLs - in-memory):
+private getCacheDurationSeconds(key: string): number {
+  if (key.includes("tech-score")) return 2 * 60 * 60;  // 2 hours
+  if (key.includes("comments")) return 5 * 60;         // 5 minutes
+  return 3 * 60;  // 3 minutes (default for news)
+}
+
+// In MongoDBCacheService (L2 TTLs - persistent cache):
+private getCacheDurationSeconds(key: string): number {
+  if (key.includes("tech-score")) return 7 * 24 * 60 * 60;  // 7 days
+  if (key.includes("comments")) return 30 * 60;             // 30 minutes
+  return 15 * 60;  // 15 minutes (default for news)
+}
+```
+
+### Querying Historical Data from Warehouse
+
+```typescript
+// In a service or endpoint
+const warehouse = container.resolve(DataWarehouseService);
+
+// Get top ranked news from last 7 days
+const startDate = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
+const endDate = new Date();
+const topNews = await warehouse.getRankedNewsByDate(startDate, endDate, 100);
+
+// Get trends for specific source
+const tabNewsTop = await warehouse.getTopRankedBySource("TabNews", 50);
+
+// Get warehouse stats
+const stats = await warehouse.getWarehouseStats();
+```
+
 ### Working with AI Features
 
 The `GeminiService` (`src/services/gemini.service.ts`) handles AI processing:
@@ -234,7 +321,12 @@ The `GeminiService` (`src/services/gemini.service.ts`) handles AI processing:
 
 - Application runs on port 8080 in production (GCP Cloud Run default)
 - Uses structured logging for GCP Cloud Logging integration
-- **Valkey cache** via GCP Memorystore for persistent caching across instances
-- Requires VPC connector configuration in Cloud Run to access Memorystore private IP
+- **Hybrid cache** via MongoDB L2 (fallback) + in-memory L1 (fast) for optimal performance
+- **Data warehouse** via MongoDB for permanent historical storage and analytics
+- Requires `MONGODB_URI` environment variable for cache + warehouse
 - Designed to be stateless and horizontally scalable
 - Background task: `startBackgroundUpdates()` monitors external service health
+
+---
+
+Built with Hono and Bun

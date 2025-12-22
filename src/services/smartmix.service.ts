@@ -4,6 +4,7 @@ import { TabNewsService } from "./tabnews.service";
 import { HackerNewsService } from "./hackernews.service";
 import { RankingService } from "./ranking.service";
 import { CacheService } from "./cache.service";
+import { DataWarehouseService } from "./data-warehouse.service";
 import { CacheKey } from "../types";
 import { LoggerService } from "./logger.service";
 
@@ -16,6 +17,8 @@ export class SmartMixService {
     @inject(HackerNewsService) private hackerNewsService: HackerNewsService,
     @inject(RankingService) private rankingService: RankingService,
     @inject(CacheService) private cacheService: CacheService,
+    @inject(DataWarehouseService)
+    private dataWarehouseService: DataWarehouseService,
     @inject(LoggerService) private logger: LoggerService
   ) {}
 
@@ -74,7 +77,10 @@ export class SmartMixService {
       }))
       .sort((a, b) => b.score - a.score);
 
-    // Interleave 1:1 (TabNews, HN, TabNews, HN...)
+    this.persistToWarehouse(tabNews, sortedTab, hn, sortedHn).catch((error: Error) =>
+      this.logger.error("Error persisting to Data Warehouse", { error })
+    );
+
     const mixed: NewsItem[] = [];
     const maxLength = Math.max(sortedTab.length, sortedHn.length);
 
@@ -88,7 +94,26 @@ export class SmartMixService {
     );
 
     await this.cacheService.set(CacheKey.SmartMix, mixed);
+
+    await this.dataWarehouseService.saveMixedFeed(mixed).catch((error: Error) =>
+      this.logger.error("Error saving mixed feed to warehouse", { error })
+    );
+
     return mixed;
+  }
+
+  private async persistToWarehouse(
+    rawTab: NewsItem[],
+    rankedTab: NewsItem[],
+    rawHn: NewsItem[],
+    rankedHn: NewsItem[]
+  ): Promise<void> {
+    await Promise.allSettled([
+      this.dataWarehouseService.saveRawNews(rawTab, "TabNews"),
+      this.dataWarehouseService.saveRankedNews(rankedTab, "TabNews"),
+      this.dataWarehouseService.saveRawNews(rawHn, "HackerNews"),
+      this.dataWarehouseService.saveRankedNews(rankedHn, "HackerNews"),
+    ]);
   }
 
   /**

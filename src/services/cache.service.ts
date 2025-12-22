@@ -1,152 +1,106 @@
 import { inject, singleton } from "tsyringe";
-import Redis from "ioredis";
-import { CacheKey } from "../types";
 import { LoggerService } from "./logger.service";
+import { MongoDBCacheService } from "./mongodb-cache.service";
 
 interface CacheEntry<T> {
   data: T;
   timestamp: number;
 }
 
+/**
+ * Hybrid Cache Service (L1 + L2)
+ * L1: In-memory cache (fast, <1ms)
+ * L2: MongoDB cache (persistent, 5-50ms)
+ */
 @singleton()
 export class CacheService {
-  private redis: Redis | null = null;
-  private memoryCache: Record<string, CacheEntry<any>> = {};
-  private readonly CACHE_DURATION_SECONDS = 5 * 60; // 5 minutes
-  private valkeyAvailable = false;
+  private memoryCache: Record<string, CacheEntry<unknown>> = {};
 
-  constructor(@inject(LoggerService) private logger: LoggerService) {
-    const host = process.env.VALKEY_HOST;
-    const port = Number(process.env.VALKEY_PORT || 6379);
-    const password = process.env.VALKEY_PASSWORD;
-    const db = Number(process.env.VALKEY_DB || 0);
-
-    // Only attempt Valkey connection if host is configured
-    if (host) {
-      this.redis = new Redis({
-        host,
-        port,
-        password,
-        db,
-        retryStrategy(times) {
-          // Retry for 3 times then give up
-          if (times > 3) {
-            return null;
-          }
-          const delay = Math.min(times * 50, 2000);
-          return delay;
-        },
-        maxRetriesPerRequest: 3,
-        enableOfflineQueue: false,
-        lazyConnect: false,
-        connectTimeout: 5000, // 5 seconds timeout
-      });
-
-      this.redis.on("error", (err) => {
-        this.logger.error("Valkey connection error", { error: err });
-        this.valkeyAvailable = false;
-      });
-
-      this.redis.on("connect", () => {
-        this.logger.info("Connected to Valkey successfully");
-        this.valkeyAvailable = true;
-      });
-
-      this.redis.on("close", () => {
-        this.logger.warn(
-          "Valkey connection closed, falling back to in-memory cache"
-        );
-        this.valkeyAvailable = false;
-      });
-    } else {
-      this.logger.warn(
-        "VALKEY_HOST not configured, using in-memory cache only (dev mode)"
-      );
-    }
+  constructor(
+    @inject(LoggerService) private logger: LoggerService,
+    @inject(MongoDBCacheService) private mongodbCache: MongoDBCacheService,
+  ) {
+    this.logger.info(
+      "CacheService initialized with hybrid cache (L1 memory + L2 MongoDB)",
+    );
   }
 
   async get<T>(key: string): Promise<T | null> {
-    // try Valkey first if available
-    this.logger.log("is gonna use valkey?", {
-      valkeyAvailable: this.redis && this.valkeyAvailable,
-    });
-    if (this.redis && this.valkeyAvailable) {
-      try {
-        const data = await this.redis.get(key);
-        if (!data) return null;
-        return JSON.parse(data) as T;
-      } catch (error) {
-        this.logger.error(`Error getting cache key ${key} from Valkey`, {
-          key,
-          error,
-        });
-        // fall through to memory cache
+    // L1: Try in-memory cache (fast, <1ms)
+    const entry = this.memoryCache[key];
+    if (entry) {
+      const duration = this.getCacheDurationMs(key);
+      const isExpired = Date.now() - entry.timestamp > duration;
+      if (!isExpired) {
+        this.logger.debug(`Cache hit (L1) for key: ${key}`);
+        return entry.data as T;
+      } else {
+        delete this.memoryCache[key];
       }
     }
 
-    this.logger.warn("using in memory cache");
-
-    // fallback to in-memory cache
-    const entry = this.memoryCache[key];
-    if (!entry) return null;
-
-    const duration = this.getCacheDurationMs(key);
-    const isExpired = Date.now() - entry.timestamp > duration;
-    if (isExpired) {
-      delete this.memoryCache[key];
-      return null;
+    // L2: Try MongoDB (fallback for persistence, ~5-50ms)
+    const mongoData = await this.mongodbCache.get<T>(key);
+    if (mongoData) {
+      // Populate L1 for next time (rehydration)
+      this.memoryCache[key] = {
+        data: mongoData,
+        timestamp: Date.now(),
+      };
+      this.logger.debug(`Cache hit (L2) for key: ${key}, populating L1`);
+      return mongoData;
     }
 
-    return entry.data;
+    // Cache miss
+    this.logger.debug(`Cache miss for key: ${key}`);
+    return null;
   }
 
   async set<T>(key: string, data: T, customTtlSeconds?: number): Promise<void> {
-    // Try Valkey first if available
-    if (this.redis && this.valkeyAvailable) {
-      try {
-        const ttl = customTtlSeconds ?? this.getCacheDurationSeconds(key);
-        await this.redis.setex(key, ttl, JSON.stringify(data));
-        return; // Success, no need to use memory cache
-      } catch (error) {
-        this.logger.error(`Error setting cache key ${key} in Valkey`, {
-          key,
-          error,
-        });
-        // Fall through to memory cache
-      }
-    }
-
-    // Fallback to in-memory cache
+    // Always save to L1 (in-memory) - instant
     this.memoryCache[key] = {
       data,
       timestamp: Date.now(),
     };
+
+    // Always save to L2 (MongoDB) - for persistence
+    try {
+      await this.mongodbCache.set(key, data, customTtlSeconds);
+    } catch (error) {
+      this.logger.error(`Error setting cache key ${key} in MongoDB`, {
+        key,
+        error,
+      });
+    }
   }
 
   async clear(): Promise<void> {
-    // Clear Valkey if available
-    if (this.redis && this.valkeyAvailable) {
-      try {
-        await this.redis.flushdb();
-      } catch (error) {
-        this.logger.error("Error clearing Valkey cache", { error });
-      }
-    }
-
-    // Always clear memory cache
+    // Clear L1
     Object.keys(this.memoryCache).forEach(
-      (key) => delete this.memoryCache[key]
+      (key) => delete this.memoryCache[key],
     );
+
+    // Clear L2
+    await this.mongodbCache.clear();
   }
 
   async disconnect(): Promise<void> {
-    if (this.redis) {
-      await this.redis.quit();
-    }
+    await this.mongodbCache.disconnect();
   }
 
   private getCacheDurationSeconds(key: string): number {
-    return this.CACHE_DURATION_SECONDS;
+    // Tech scores: 2 hours (L1)
+    if (key.includes("tech-score")) {
+      return 2 * 60 * 60; // 2 hours
+    }
+
+    // Comments: 5 minutes (L1)
+    if (key.includes("comments")) {
+      return 5 * 60; // 5 minutes
+    }
+
+    // Default news data: 3 minutes (L1)
+    return 3 * 60; // 3 minutes
   }
 
   private getCacheDurationMs(key: string): number {

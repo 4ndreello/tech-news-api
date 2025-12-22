@@ -9,8 +9,8 @@ export class LoggerService implements Logger {
     return createLogger({ correlationId });
   }
 
-  log(message: string, metadata?: Record<string, unknown>): void {
-    this.getLogger().log(message, metadata);
+  debug(message: string, metadata?: Record<string, unknown>): void {
+    this.getLogger().debug(message, metadata);
   }
 
   info(message: string, metadata?: Record<string, unknown>): void {
