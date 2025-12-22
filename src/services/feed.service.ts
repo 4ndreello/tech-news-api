@@ -83,29 +83,13 @@ export class FeedService {
     // Build sources status array
     // Note: mixResult contains TabNews + HackerNews combined, so we derive their status from mixData
     const sources: SourceStatus[] = [
-      {
-        name: Source.TabNews,
-        ok: !mixData.error,
-        error: mixData.error,
-        itemCount: bySource.TabNews.length,
-      },
-      {
-        name: Source.HackerNews,
-        ok: !mixData.error,
-        error: mixData.error,
-        itemCount: bySource.HackerNews.length,
-      },
-      {
-        name: Source.DevTo,
-        ok: !devToData.error,
-        error: devToData.error,
-        itemCount: bySource.DevTo.length,
-      },
+      { name: Source.TabNews, ok: !mixData.error, error: mixData.error },
+      { name: Source.HackerNews, ok: !mixData.error, error: mixData.error },
+      { name: Source.DevTo, ok: !devToData.error, error: devToData.error },
       {
         name: Source.Lobsters,
         ok: !lobstersData.error,
         error: lobstersData.error,
-        itemCount: bySource.Lobsters.length,
       },
     ];
 
@@ -133,15 +117,6 @@ export class FeedService {
       }
     }
 
-    this.logger.info("merged and interleaved news from all sources", {
-      sources: sources.map((s) => ({
-        name: s.name,
-        ok: s.ok,
-        itemCount: s.itemCount,
-      })),
-      total: interleaved.length,
-    });
-
     // Convert to FeedItem format
     const feedItems: FeedItem[] = interleaved.map((news) => ({
       type: "news",
@@ -160,7 +135,8 @@ export class FeedService {
     const finalItems = feedItems.slice(startIdx, startIdx + limit);
 
     this.logger.info("feed prepared", {
-      itemCount: finalItems.length,
+      sources: sources.map((s) => ({ name: s.name, ok: s.ok })),
+      total: finalItems.length,
     });
 
     const nextCursor =

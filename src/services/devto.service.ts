@@ -1,6 +1,6 @@
 import { inject, singleton } from "tsyringe";
 import type { ArticleWithAuthor, DevToArticle, NewsItem } from "../types";
-import { Source } from "../types";
+import { Source, CacheKey } from "../types";
 import { LoggerService } from "./logger.service";
 import { GeminiService } from "./gemini.service";
 import { CacheService } from "./cache.service";
@@ -99,9 +99,18 @@ export class DevToService {
    * Fetch Dev.to articles as NewsItem[] to integrate with the news feed
    */
   async fetchNews(): Promise<NewsItem[]> {
+    // check cache first
+    const cached = await this.cacheService.get<NewsItem[]>(CacheKey.DevTo);
+    if (cached) {
+      this.logger.info("returning cached Dev.to articles", {
+        count: cached.length,
+      });
+      return cached;
+    }
+
     try {
-      // Fetch articles
-      const articles = await this.fetchRecentArticles(100);
+      // Fetch articles (limit to ~30 like other sources)
+      const articles = await this.fetchRecentArticles(30);
 
       // Apply filters
       const filtered = this.filterArticleReadingTime(articles);
@@ -140,6 +149,9 @@ export class DevToService {
       this.logger.info(
         `Dev.to: ${techFiltered.length}/${newsItems.length} articles are tech-related`
       );
+
+      // cache results
+      await this.cacheService.set(CacheKey.DevTo, techFiltered);
 
       return techFiltered;
     } catch (error) {

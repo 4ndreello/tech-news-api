@@ -11,6 +11,7 @@ export enum CacheKey {
   TabNewsComments = "comments",
   SmartMix = "smartmix",
   Lobsters = "lobsters",
+  DevTo = "devto",
 }
 
 export interface Comment {
@@ -226,7 +227,6 @@ export interface SourceStatus {
   name: Source;
   ok: boolean;
   error?: string;
-  itemCount: number;
 }
 
 // response from the /api/feed endpoint
