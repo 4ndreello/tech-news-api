@@ -2,6 +2,7 @@ export enum Source {
   TabNews = "TabNews",
   HackerNews = "HackerNews",
   DevTo = "DevTo",
+  Lobsters = "Lobsters",
 }
 
 export enum CacheKey {
@@ -9,6 +10,7 @@ export enum CacheKey {
   HackerNews = "hackernews",
   TabNewsComments = "comments",
   SmartMix = "smartmix",
+  Lobsters = "lobsters",
 }
 
 export interface Comment {
@@ -196,6 +198,24 @@ export interface DevToArticle {
 export interface ArticleWithAuthor {
   article: DevToArticle;
   username: string;
+}
+
+// Lobsters API Response Type
+export interface LobstersItem {
+  short_id: string;
+  short_id_url: string;
+  created_at: string; // ISO 8601
+  title: string;
+  url: string;
+  score: number;
+  flags: number;
+  comment_count: number;
+  description: string;
+  description_plain: string;
+  comments_url: string;
+  submitter_user: string;
+  user_is_author: boolean;
+  tags: string[];
 }
 
 // Feed item type - only news items
