@@ -4,11 +4,16 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-TechNews API is a backend service built with **Hono** and **Bun** that aggregates tech news from multiple sources (TabNews, Hacker News, Dev.to) and provides AI-curated highlights. The API applies intelligent ranking algorithms and smart mixing to deliver high-quality, diverse content.
+TechNews API is a backend service built with **Hono** and **Bun** that aggregates tech news from multiple sources (TabNews, Hacker News, Dev.to, Lobsters) and provides AI-curated content. The API applies intelligent ranking algorithms, AI enrichment, and smart mixing to deliver high-quality, diverse content.
 
 Uses a **dual MongoDB strategy**:
-- **Data Warehouse** (raw_news, ranked_news, mixed_feed): Permanent storage for historical analysis and trends
-- **L2 Cache** (cache_entries): Temporary cache with TTL for fast fallback
+- **Data Warehouse** (`tech_news_warehouse`): Permanent storage for historical analysis, trending topics, and analytics
+  - `raw_news`: Original API responses
+  - `enriched_news`: AI-analyzed news with tech scores and keywords
+  - `ranked_news`: News with calculated scores
+  - `processing_logs`: Audit trail with 30-day TTL
+  - `mixed_feed`: Final feed snapshots
+- **L2 Cache** (`tech_news_cache`): Temporary cache with TTL for fast fallback
 
 ## Commands
 
@@ -98,10 +103,30 @@ Services follow a clear separation of concerns:
      - Uses Gemini AI for summarization and relevance scoring
      - Caches highlights for 10 minutes (vs 5 minutes for news)
 
-4. **Infrastructure Services**
+4. **Enrichment & Persistence Services** (NEW)
+   - `EnrichmentService`: Centralizes AI scoring and keyword extraction
+     - Uses `GeminiService` for tech relevance analysis (0-100 score)
+     - Extracts keywords for trending analysis
+     - Calculates confidence scores based on content quality
+   - `PersistenceService`: Handles data persistence with retry logic
+     - Exponential backoff (3 retries, 100ms-2000ms)
+     - Coordinates persistence to all warehouse collections
+     - Logs processing steps for auditability
+   - `ProcessingLogsService`: Audit trail for all processing steps
+     - TTL: 30 days auto-expiration
+     - Tracks: fetch, enrich, rank, mix steps
+     - Enables debugging and analytics
+
+5. **Analytics Services** (NEW)
+   - `AnalyticsService`: Provides trending topics and statistics
+     - `getTrendingTopics(period)`: Keywords ranked by frequency and score
+     - `getSourceStats(period)`: Per-source statistics
+     - `getProcessingStats(since)`: Processing pipeline health
+
+6. **Infrastructure Services**
    - `CacheService`: Hybrid L1 (in-memory) + L2 (MongoDB) caching with intelligent TTLs
    - `MongoDBCacheService`: L2 temporary cache with TTL expiration (5-15 min for news, 2h-7d for scores)
-   - `DataWarehouseService`: Persistent MongoDB storage for raw/ranked/mixed data (no TTL, permanent)
+   - `DataWarehouseService`: Persistent MongoDB storage for raw/enriched/ranked/mixed data (no TTL, permanent)
    - `GeminiService`: Google Gemini AI integration for content analysis
    - `LinkScraperService`: Extracts metadata from URLs
    - `LoggerService`: Request-scoped logging with correlation IDs
@@ -114,6 +139,10 @@ Main endpoint with **cursor-based pagination**:
 - `limit` parameter: 1-10 (default: 10)
 - `after` parameter: ID of last item from previous page
 - Feed interleaves news and highlights in 5:1 ratio (5 news items, then 1 highlight)
+
+Analytics endpoints (NEW):
+- `GET /api/analytics/trending?period=7d` - Trending topics (24h, 7d, 30d)
+- `GET /api/analytics/stats` - Warehouse and processing statistics
 
 Legacy endpoints (no pagination):
 - `GET /api/news/tabnews` - All TabNews articles

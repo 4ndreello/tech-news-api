@@ -235,3 +235,105 @@ export interface FeedResponse {
   nextCursor: string | null;
   sources: SourceStatus[];
 }
+
+// ============================================
+// PERSISTENCE & ANALYTICS TYPES
+// ============================================
+
+// Processing Step Types
+export type ProcessingStep = "fetch" | "enrich" | "rank" | "mix" | "cache";
+
+// Processing Log Entry (for auditability)
+export interface ProcessingLogEntry {
+  correlationId: string;
+  timestamp: Date;
+  step: ProcessingStep;
+  source: Source;
+  newsItemId: string;
+  duration: number; // ms
+  success: boolean;
+  error?: {
+    message: string;
+    stack?: string;
+  };
+  metadata?: Record<string, unknown>;
+}
+
+// Enriched News Item (after AI analysis)
+export interface EnrichedNewsItem {
+  source: Source;
+  itemId: string;
+  rawData: NewsItem;
+
+  // AI Analysis
+  techScore: number; // 0-100
+  techScoreConfidence: number; // 0-1
+
+  // Keywords extracted
+  keywords: string[];
+  isTechNews: boolean;
+
+  // Link metadata (scraped)
+  linkMetadata?: {
+    title: string;
+    description: string;
+    imageUrl?: string;
+  };
+
+  enrichedAt: Date;
+}
+
+// Ranked News Item (after score calculation)
+export interface RankedNewsItem {
+  source: Source;
+  itemId: string;
+  data: NewsItem;
+  rank: number;
+  calculatedScore: number; // Our normalized score
+  originalScore: number; // Original source score
+  techScore: number;
+  keywords: string[];
+  rankedAt: Date;
+}
+
+// Analytics Types
+export type AnalyticsPeriod = "24h" | "7d" | "30d";
+
+export interface TrendingTopic {
+  keyword: string;
+  count: number;
+  avgScore: number;
+  sources: Source[];
+  topArticles: Array<{
+    id: string;
+    title: string;
+    score: number;
+    source: Source;
+  }>;
+}
+
+export interface SourceStats {
+  source: Source;
+  totalArticles: number;
+  avgScore: number;
+  topKeywords: string[];
+}
+
+export interface AnalyticsResponse {
+  period: AnalyticsPeriod;
+  generatedAt: string;
+  trending: TrendingTopic[];
+  sourceStats: SourceStats[];
+  totalProcessed: number;
+}
+
+// Warehouse Stats
+export interface WarehouseStats {
+  rawCount: number;
+  enrichedCount: number;
+  rankedCount: number;
+  mixedCount: number;
+  logsCount: number;
+  oldestRecord?: Date;
+  newestRecord?: Date;
+}

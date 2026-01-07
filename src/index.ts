@@ -7,11 +7,13 @@ import { loggingMiddleware } from "./middleware/logging";
 import { FeedService } from "./services/feed.service";
 import { HackerNewsService } from "./services/hackernews.service";
 import { SmartMixService } from "./services/smartmix.service";
+import { AnalyticsService } from "./services/analytics.service";
 import {
   getServicesStatus,
   startBackgroundUpdates,
 } from "./services/status-checker";
 import { TabNewsService } from "./services/tabnews.service";
+import type { AnalyticsPeriod } from "./types";
 
 const app = new Hono();
 
@@ -32,17 +34,20 @@ app.use(
   })
 );
 
-// health check endpoint
 app.get("/", (c) => {
   return c.json({
     message: "TechNews API - Powered by Hono + Bun",
-    version: "1.0.0",
+    version: "2.0.0",
     endpoints: {
       tabnews: "/api/news/tabnews",
       hackernews: "/api/news/hackernews",
       feed: "/api/feed",
       comments: "/api/comments/:username/:slug",
       servicesStatus: "/api/services/status",
+      analytics: {
+        trending: "/api/analytics/trending?period=7d",
+        stats: "/api/analytics/stats",
+      },
     },
   });
 });
@@ -158,7 +163,6 @@ app.get("/api/comments/:username/:slug", async (c) => {
   }
 });
 
-// Get cloud services status
 app.get("/api/services/status", async (c) => {
   try {
     const status = await getServicesStatus();
@@ -178,7 +182,67 @@ app.get("/api/services/status", async (c) => {
   }
 });
 
-// 404 handler
+app.get("/api/analytics/trending", async (c) => {
+  try {
+    const analyticsService = container.resolve(AnalyticsService);
+
+    const periodParam = c.req.query("period") || "7d";
+    const validPeriods = ["24h", "7d", "30d"];
+    const period: AnalyticsPeriod = validPeriods.includes(periodParam)
+      ? (periodParam as AnalyticsPeriod)
+      : "7d";
+
+    const trending = await analyticsService.getTrendingTopics(period);
+
+    c.header("Cache-Control", "public, max-age=900");
+
+    return c.json(trending);
+  } catch (error) {
+    const logger = c.get("logger");
+    logger.error("error fetching trending topics", {
+      error: error instanceof Error ? error.message : String(error),
+      stack: error instanceof Error ? error.stack : undefined,
+    });
+    return c.json(
+      {
+        error: error instanceof Error ? error.message : "Failed to load trending topics",
+      },
+      500
+    );
+  }
+});
+
+app.get("/api/analytics/stats", async (c) => {
+  try {
+    const analyticsService = container.resolve(AnalyticsService);
+
+    const [warehouseStats, processingStats] = await Promise.all([
+      analyticsService.getWarehouseStats(),
+      analyticsService.getProcessingStats(new Date(Date.now() - 24 * 60 * 60 * 1000)),
+    ]);
+
+    c.header("Cache-Control", "public, max-age=300");
+
+    return c.json({
+      warehouse: warehouseStats,
+      processing: processingStats,
+      generatedAt: new Date().toISOString(),
+    });
+  } catch (error) {
+    const logger = c.get("logger");
+    logger.error("error fetching analytics stats", {
+      error: error instanceof Error ? error.message : String(error),
+      stack: error instanceof Error ? error.stack : undefined,
+    });
+    return c.json(
+      {
+        error: error instanceof Error ? error.message : "Failed to load analytics stats",
+      },
+      500
+    );
+  }
+});
+
 app.notFound((c) => {
   return c.json(
     {
@@ -190,6 +254,8 @@ app.notFound((c) => {
         "GET /api/feed",
         "GET /api/comments/:username/:slug",
         "GET /api/services/status",
+        "GET /api/analytics/trending?period=7d",
+        "GET /api/analytics/stats",
       ],
     },
     404
