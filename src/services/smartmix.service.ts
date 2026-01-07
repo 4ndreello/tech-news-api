@@ -77,9 +77,9 @@ export class SmartMixService {
     const rankedTab = this.rankItems(enrichedTab, SourceEnum.TabNews);
     const rankedHn = this.rankItems(enrichedHn, SourceEnum.HackerNews);
 
-    this.persistAll(tabNews, enrichedTab, rankedTab, hn, enrichedHn, rankedHn);
-
     const mixed = this.interleave(rankedTab, rankedHn);
+
+    this.persistAll(tabNews, enrichedTab, rankedTab, hn, enrichedHn, rankedHn, mixed);
 
     this.logger.info(
       `SmartMix: mixed ${mixed.length} items (${rankedTab.length} TabNews + ${rankedHn.length} HN) in ${Date.now() - startTime}ms`
@@ -140,7 +140,8 @@ export class SmartMixService {
     rankedTab: RankedNewsItem[],
     rawHn: NewsItem[],
     enrichedHn: EnrichedNewsItem[],
-    rankedHn: RankedNewsItem[]
+    rankedHn: RankedNewsItem[],
+    mixed: NewsItem[]
   ): void {
     this.persistenceService
       .persistAll({
@@ -156,6 +157,7 @@ export class SmartMixService {
           { items: rankedTab, source: SourceEnum.TabNews },
           { items: rankedHn, source: SourceEnum.HackerNews },
         ],
+        mixed: { items: mixed, cacheKey: CacheKey.SmartMix },
       })
       .catch((error: Error) =>
         this.logger.error("Error persisting to Data Warehouse", { error })
