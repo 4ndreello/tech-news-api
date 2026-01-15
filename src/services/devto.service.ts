@@ -14,7 +14,7 @@ export class DevToService {
   constructor(
     @inject(LoggerService) private logger: LoggerService,
     @inject(GeminiService) private geminiService: GeminiService,
-    @inject(CacheService) private cacheService: CacheService
+    @inject(CacheService) private cacheService: CacheService,
   ) {
     this.apiKey = process.env.DEV_TO_KEY;
 
@@ -22,7 +22,7 @@ export class DevToService {
       this.logger.info("Dev.to service initialized with API key");
     } else {
       this.logger.warn(
-        "Dev.to service initialized without API key (read-only mode)"
+        "Dev.to service initialized without API key (read-only mode)",
       );
     }
   }
@@ -41,12 +41,12 @@ export class DevToService {
       // Fetch latest articles with tech tags
       const response = await fetch(
         `${this.API_URL}/articles?per_page=${perPage}&top=7&tags=javascript,typescript,webdev,programming,react`,
-        { headers }
+        { headers },
       );
 
       if (!response.ok) {
         throw new Error(
-          `Dev.to API error: ${response.status} ${response.statusText}`
+          `Dev.to API error: ${response.status} ${response.statusText}`,
         );
       }
 
@@ -124,10 +124,8 @@ export class DevToService {
       const newsItems: NewsItem[] = filtered.map((articleWithAuthor) => {
         const { article } = articleWithAuthor;
 
-        // Calculate score based on reactions and comments
-        // Weight reactions more heavily than comments
-        const score =
-          article.positive_reactions_count * 2 + article.comments_count * 5;
+        // Use positive reactions as the base score
+        const score = article.positive_reactions_count;
 
         return {
           id: `devto-${article.id}`,
@@ -147,7 +145,7 @@ export class DevToService {
       const techFiltered = await this.filterByTechRelevance(newsItems);
 
       this.logger.info(
-        `Dev.to: ${techFiltered.length}/${newsItems.length} articles are tech-related`
+        `Dev.to: ${techFiltered.length}/${newsItems.length} articles are tech-related`,
       );
 
       // cache results
@@ -179,7 +177,7 @@ export class DevToService {
         // Analyze with AI (title + body if available)
         score = await this.geminiService.analyzeTechRelevance(
           item.title,
-          item.body || ""
+          item.body || "",
         );
 
         // Cache score for 24 hours (86400 seconds)

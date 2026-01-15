@@ -16,12 +16,12 @@ export class RankingService {
     const comments = item.commentCount || 0;
     const techScore = item.techScore || 0;
 
-    // Comments weight: how much a comment is worth compared to a point
     // 0.3 means ~3 comments = 1 point in value
-    const COMMENT_WEIGHT = 0.3;
+    const COMMENT_WEIGHT = 0.8;
+    const LIKE_WEIGHT = 1.2;
 
     // Calculate total engagement (combines score + comments)
-    const engagement = score + comments * COMMENT_WEIGHT;
+    const engagement = score * LIKE_WEIGHT + comments * COMMENT_WEIGHT;
 
     // Logarithmic normalization: compresses large numbers, values small numbers
     // log10(1) = 0, log10(10) = 1, log10(100) = 2, log10(1000) = 3
@@ -36,7 +36,7 @@ export class RankingService {
 
     // Gravity controls how fast old posts decay (1.8 is Reddit's standard)
     // Higher gravity = faster decay
-    const GRAVITY = 1.8;
+    const GRAVITY = 1.6;
     const ageDecay = Math.pow(ageInHours + 2, GRAVITY); // +2 prevents division by zero
 
     // Tech score boost: multiplier based on AI relevance (0-100)
@@ -44,7 +44,7 @@ export class RankingService {
     // 80 = 1.4x boost
     // 61 = 1.305x boost (minimum passing score)
     // 0 = 1.0x (no boost)
-    const TECH_SCORE_WEIGHT = 0.005; // 0.5% boost per point
+    const TECH_SCORE_WEIGHT = 0.015; // 0.5% boost per point
     const techBoost = 1 + techScore * TECH_SCORE_WEIGHT;
 
     // Final score: multiply by 1000 for human-readable numbers
