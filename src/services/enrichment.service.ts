@@ -1,7 +1,7 @@
 import { inject, singleton } from "tsyringe";
 import { LoggerService } from "./logger.service";
 import { GeminiService } from "./gemini.service";
-import { ProcessingLogsService } from "./processing-logs.service";
+import { StorageService } from "./storage.service";
 import type { NewsItem, EnrichedNewsItem, Source } from "../types";
 
 interface KeywordExtractionResult {
@@ -34,7 +34,7 @@ export class EnrichmentService {
   constructor(
     @inject(LoggerService) private logger: LoggerService,
     @inject(GeminiService) private geminiService: GeminiService,
-    @inject(ProcessingLogsService) private processingLogs: ProcessingLogsService
+    @inject(StorageService) private storage: StorageService
   ) {}
 
   async enrichNewsItem(item: NewsItem): Promise<EnrichedNewsItem> {
@@ -79,7 +79,7 @@ export class EnrichmentService {
       };
     } finally {
       const duration = Date.now() - startTime;
-      await this.processingLogs.log(
+      await this.storage.log(
         "enrich",
         item.source,
         item.id,

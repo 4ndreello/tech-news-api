@@ -6,7 +6,6 @@ import { logger } from "./logger";
 import { loggingMiddleware } from "./middleware/logging";
 import { FeedService } from "./services/feed.service";
 import { HackerNewsService } from "./services/hackernews.service";
-import { SmartMixService } from "./services/smartmix.service";
 import { AnalyticsService } from "./services/analytics.service";
 import {
   getServicesStatus,
@@ -31,7 +30,7 @@ app.use(
       "https://news.andreello.dev.br",
     ],
     credentials: true,
-  })
+  }),
 );
 
 app.get("/", (c) => {
@@ -69,7 +68,7 @@ app.get("/api/news/tabnews", async (c) => {
         error:
           error instanceof Error ? error.message : "Erro ao carregar TabNews",
       },
-      500
+      500,
     );
   }
 });
@@ -93,7 +92,7 @@ app.get("/api/news/hackernews", async (c) => {
             ? error.message
             : "Erro ao carregar Hacker News",
       },
-      500
+      500,
     );
   }
 });
@@ -127,7 +126,7 @@ app.get("/api/feed", async (c) => {
       {
         error: error instanceof Error ? error.message : "Failed to load feed",
       },
-      500
+      500,
     );
   }
 });
@@ -158,7 +157,7 @@ app.get("/api/comments/:username/:slug", async (c) => {
             ? error.message
             : "Erro ao carregar comentários",
       },
-      500
+      500,
     );
   }
 });
@@ -177,7 +176,7 @@ app.get("/api/services/status", async (c) => {
       {
         error: "Falha ao carregar status dos serviços",
       },
-      500
+      500,
     );
   }
 });
@@ -205,9 +204,12 @@ app.get("/api/analytics/trending", async (c) => {
     });
     return c.json(
       {
-        error: error instanceof Error ? error.message : "Failed to load trending topics",
+        error:
+          error instanceof Error
+            ? error.message
+            : "Failed to load trending topics",
       },
-      500
+      500,
     );
   }
 });
@@ -218,7 +220,9 @@ app.get("/api/analytics/stats", async (c) => {
 
     const [warehouseStats, processingStats] = await Promise.all([
       analyticsService.getWarehouseStats(),
-      analyticsService.getProcessingStats(new Date(Date.now() - 24 * 60 * 60 * 1000)),
+      analyticsService.getProcessingStats(
+        new Date(Date.now() - 24 * 60 * 60 * 1000),
+      ),
     ]);
 
     c.header("Cache-Control", "public, max-age=300");
@@ -236,9 +240,12 @@ app.get("/api/analytics/stats", async (c) => {
     });
     return c.json(
       {
-        error: error instanceof Error ? error.message : "Failed to load analytics stats",
+        error:
+          error instanceof Error
+            ? error.message
+            : "Failed to load analytics stats",
       },
-      500
+      500,
     );
   }
 });
@@ -258,7 +265,7 @@ app.notFound((c) => {
         "GET /api/analytics/stats",
       ],
     },
-    404
+    404,
   );
 });
 

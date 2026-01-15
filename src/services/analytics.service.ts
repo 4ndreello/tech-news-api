@@ -1,7 +1,6 @@
 import { inject, singleton } from "tsyringe";
 import { LoggerService } from "./logger.service";
-import { DataWarehouseService } from "./data-warehouse.service";
-import { ProcessingLogsService } from "./processing-logs.service";
+import { StorageService } from "./storage.service";
 import type {
   AnalyticsPeriod,
   AnalyticsResponse,
@@ -15,8 +14,7 @@ import type {
 export class AnalyticsService {
   constructor(
     @inject(LoggerService) private logger: LoggerService,
-    @inject(DataWarehouseService) private warehouse: DataWarehouseService,
-    @inject(ProcessingLogsService) private processingLogs: ProcessingLogsService
+    @inject(StorageService) private storage: StorageService
   ) {}
 
   async getTrendingTopics(period: AnalyticsPeriod = "7d"): Promise<AnalyticsResponse> {
@@ -25,9 +23,9 @@ export class AnalyticsService {
 
     try {
       const [trending, commented, stats] = await Promise.all([
-        this.warehouse.getTrendingKeywords(period, 15),
-        this.warehouse.getMostCommentedTopics(period, 10),
-        this.warehouse.getWarehouseStats(),
+        this.storage.getTrendingKeywords(period, 15),
+        this.storage.getMostCommentedTopics(period, 10),
+        this.storage.getWarehouseStats(),
       ]);
 
       const mergedTrending = this.mergeTrendingResults(trending, commented);
@@ -62,13 +60,13 @@ export class AnalyticsService {
     const stats: SourceStats[] = [];
 
     for (const source of sources) {
-      const topNews = await this.warehouse.getTopRankedBySource(source, 100);
+      const topNews = await this.storage.getTopRankedBySource(source, 100);
 
       if (topNews.length === 0) continue;
 
       const avgScore =
-        topNews.reduce((sum, item) => sum + item.score, 0) / topNews.length;
-
+        topNews.reduce((sum: number, item) => sum + item.score, 0) /
+        topNews.length;
       const keywordCounts = new Map<string, number>();
       for (const item of topNews) {
         const titleWords = this.extractKeywordsFromTitle(item.title);
@@ -94,7 +92,7 @@ export class AnalyticsService {
   }
 
   async getWarehouseStats(): Promise<WarehouseStats> {
-    return this.warehouse.getWarehouseStats();
+    return this.storage.getWarehouseStats();
   }
 
   async getProcessingStats(since: Date): Promise<{
@@ -104,10 +102,10 @@ export class AnalyticsService {
     mix: { total: number; successful: number; failed: number; avgDuration: number };
   }> {
     const [fetch, enrich, rank, mix] = await Promise.all([
-      this.processingLogs.getStepStats("fetch", since),
-      this.processingLogs.getStepStats("enrich", since),
-      this.processingLogs.getStepStats("rank", since),
-      this.processingLogs.getStepStats("mix", since),
+      this.storage.getStepStats("fetch", since),
+      this.storage.getStepStats("enrich", since),
+      this.storage.getStepStats("rank", since),
+      this.storage.getStepStats("mix", since),
     ]);
 
     return { fetch, enrich, rank, mix };

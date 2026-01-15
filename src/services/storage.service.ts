@@ -1,6 +1,7 @@
 import { inject, singleton } from "tsyringe";
 import { MongoClient, Db, Collection } from "mongodb";
 import { LoggerService } from "./logger.service";
+import { getCorrelationId } from "../context/request-context";
 import type {
   NewsItem,
   EnrichedNewsItem,
@@ -9,6 +10,8 @@ import type {
   WarehouseStats,
   TrendingTopic,
   AnalyticsPeriod,
+  ProcessingLogEntry,
+  ProcessingStep,
 } from "../types";
 
 interface RawNewsDocument {
@@ -56,15 +59,22 @@ interface MixedFeedDocument {
   itemCount: number;
 }
 
+interface ProcessingLogDocument extends ProcessingLogEntry {
+  _id?: string;
+  expiresAt: Date;
+}
+
 @singleton()
-export class DataWarehouseService {
+export class StorageService {
   private client: MongoClient | null = null;
   private db: Db | null = null;
   private rawCollection: Collection<RawNewsDocument> | null = null;
   private enrichedCollection: Collection<EnrichedNewsDocument> | null = null;
   private rankedCollection: Collection<RankedNewsDocument> | null = null;
   private mixedCollection: Collection<MixedFeedDocument> | null = null;
+  private logsCollection: Collection<ProcessingLogDocument> | null = null;
   private isConnected = false;
+  private readonly logsTtlDays = 30;
 
   constructor(@inject(LoggerService) private logger: LoggerService) {
     this.initialize();
@@ -74,9 +84,7 @@ export class DataWarehouseService {
     const mongoUri = process.env.MONGODB_URI;
 
     if (!mongoUri) {
-      this.logger.warn(
-        "MONGODB_URI not configured, data warehouse disabled (dev mode)"
-      );
+      this.logger.warn("MONGODB_URI not configured, storage disabled (dev mode)");
       return;
     }
 
@@ -93,13 +101,14 @@ export class DataWarehouseService {
       this.enrichedCollection = this.db.collection("enriched_news");
       this.rankedCollection = this.db.collection("ranked_news");
       this.mixedCollection = this.db.collection("mixed_feed");
+      this.logsCollection = this.db.collection("processing_logs");
 
       await this.createIndexes();
 
       this.isConnected = true;
-      this.logger.info("Connected to MongoDB data warehouse successfully");
+      this.logger.info("Connected to MongoDB storage successfully");
     } catch (error) {
-      this.logger.error("Failed to connect to MongoDB warehouse", { error });
+      this.logger.error("Failed to connect to MongoDB storage", { error });
       this.isConnected = false;
     }
   }
@@ -123,9 +132,19 @@ export class DataWarehouseService {
 
       await this.mixedCollection?.createIndex({ mixedAt: -1 });
 
-      this.logger.info("Data warehouse indexes created successfully");
+      await this.logsCollection?.createIndex(
+        { expiresAt: 1 },
+        { expireAfterSeconds: 0 },
+      );
+      await this.logsCollection?.createIndex({ correlationId: 1 });
+      await this.logsCollection?.createIndex({ step: 1, timestamp: -1 });
+      await this.logsCollection?.createIndex({ source: 1, timestamp: -1 });
+      await this.logsCollection?.createIndex({ newsItemId: 1 });
+      await this.logsCollection?.createIndex({ success: 1, timestamp: -1 });
+
+      this.logger.info("Storage indexes created successfully");
     } catch (error) {
-      this.logger.error("Failed to create warehouse indexes", { error });
+      this.logger.error("Failed to create storage indexes", { error });
     }
   }
 
@@ -244,7 +263,7 @@ export class DataWarehouseService {
   async getRawNewsBySourceAndDate(
     source: string,
     startDate: Date,
-    endDate: Date
+    endDate: Date,
   ): Promise<NewsItem[]> {
     if (!this.isConnected || !this.rawCollection) {
       return [];
@@ -269,7 +288,7 @@ export class DataWarehouseService {
   async getRankedNewsByDate(
     startDate: Date,
     endDate: Date,
-    limit = 100
+    limit = 100,
   ): Promise<RankedNewsDocument[]> {
     if (!this.isConnected || !this.rankedCollection) {
       return [];
@@ -308,7 +327,10 @@ export class DataWarehouseService {
     }
   }
 
-  async getTrendingKeywords(period: AnalyticsPeriod, limit = 20): Promise<TrendingTopic[]> {
+  async getTrendingKeywords(
+    period: AnalyticsPeriod,
+    limit = 20,
+  ): Promise<TrendingTopic[]> {
     if (!this.isConnected || !this.rankedCollection) {
       return [];
     }
@@ -347,7 +369,7 @@ export class DataWarehouseService {
         count: r.count as number,
         avgScore: Math.round(r.avgScore as number),
         sources: r.sources as Source[],
-        topArticles: (r.articles as Array<{id: string; title: string; score: number; source: Source}>)
+        topArticles: (r.articles as Array<{ id: string; title: string; score: number; source: Source }>)
           .sort((a, b) => b.score - a.score)
           .slice(0, 5),
       }));
@@ -357,7 +379,10 @@ export class DataWarehouseService {
     }
   }
 
-  async getMostCommentedTopics(period: AnalyticsPeriod, limit = 20): Promise<TrendingTopic[]> {
+  async getMostCommentedTopics(
+    period: AnalyticsPeriod,
+    limit = 20,
+  ): Promise<TrendingTopic[]> {
     if (!this.isConnected || !this.rankedCollection) {
       return [];
     }
@@ -402,7 +427,7 @@ export class DataWarehouseService {
         count: r.count as number,
         avgScore: Math.round(r.avgScore as number),
         sources: r.sources as Source[],
-        topArticles: (r.articles as Array<{id: string; title: string; score: number; source: Source}>)
+        topArticles: (r.articles as Array<{ id: string; title: string; score: number; source: Source }>)
           .sort((a, b) => b.score - a.score)
           .slice(0, 5),
       }));
@@ -424,11 +449,12 @@ export class DataWarehouseService {
     }
 
     try {
-      const [rawCount, enrichedCount, rankedCount, mixedCount] = await Promise.all([
+      const [rawCount, enrichedCount, rankedCount, mixedCount, logsCount] = await Promise.all([
         this.rawCollection?.countDocuments() || 0,
         this.enrichedCollection?.countDocuments() || 0,
         this.rankedCollection?.countDocuments() || 0,
         this.mixedCollection?.countDocuments() || 0,
+        this.logsCollection?.countDocuments() || 0,
       ]);
 
       const oldest = await this.rawCollection
@@ -448,7 +474,7 @@ export class DataWarehouseService {
         enrichedCount,
         rankedCount,
         mixedCount,
-        logsCount: 0,
+        logsCount,
         oldestRecord: oldest?.[0]?.fetchedAt,
         newestRecord: newest?.[0]?.fetchedAt,
       };
@@ -464,6 +490,153 @@ export class DataWarehouseService {
     }
   }
 
+  async log(
+    step: ProcessingStep,
+    source: Source,
+    newsItemId: string,
+    duration: number,
+    success: boolean,
+    error?: { message: string; stack?: string },
+    metadata?: Record<string, unknown>,
+  ): Promise<void> {
+    if (!this.isConnected || !this.logsCollection) {
+      return;
+    }
+
+    const correlationId = getCorrelationId() || `fallback-${Date.now()}`;
+    const now = new Date();
+    const expiresAt = new Date(now.getTime() + this.logsTtlDays * 24 * 60 * 60 * 1000);
+
+    const entry: ProcessingLogDocument = {
+      correlationId,
+      timestamp: now,
+      step,
+      source,
+      newsItemId,
+      duration,
+      success,
+      error,
+      metadata,
+      expiresAt,
+    };
+
+    try {
+      await this.logsCollection.insertOne(entry);
+    } catch (err) {
+      this.logger.error("Failed to insert processing log", {
+        step,
+        source,
+        newsItemId,
+        error: err,
+      });
+    }
+  }
+
+  async logBatch(
+    entries: Omit<ProcessingLogEntry, "correlationId" | "timestamp">[],
+  ): Promise<void> {
+    if (!this.isConnected || !this.logsCollection || entries.length === 0) {
+      return;
+    }
+
+    const correlationId = getCorrelationId() || `fallback-${Date.now()}`;
+    const now = new Date();
+    const expiresAt = new Date(now.getTime() + this.logsTtlDays * 24 * 60 * 60 * 1000);
+
+    const documents: ProcessingLogDocument[] = entries.map((entry) => ({
+      ...entry,
+      correlationId,
+      timestamp: now,
+      expiresAt,
+    }));
+
+    try {
+      await this.logsCollection.insertMany(documents);
+    } catch (error) {
+      this.logger.error("Failed to insert batch processing logs", { error });
+    }
+  }
+
+  async getLogsByCorrelation(correlationId: string): Promise<ProcessingLogEntry[]> {
+    if (!this.isConnected || !this.logsCollection) {
+      return [];
+    }
+
+    try {
+      return await this.logsCollection
+        .find({ correlationId })
+        .sort({ timestamp: 1 })
+        .toArray();
+    } catch (error) {
+      this.logger.error("Failed to get logs by correlation", { correlationId, error });
+      return [];
+    }
+  }
+
+  async getRecentErrors(limit = 100): Promise<ProcessingLogEntry[]> {
+    if (!this.isConnected || !this.logsCollection) {
+      return [];
+    }
+
+    try {
+      return await this.logsCollection
+        .find({ success: false })
+        .sort({ timestamp: -1 })
+        .limit(limit)
+        .toArray();
+    } catch (error) {
+      this.logger.error("Failed to get recent errors", { error });
+      return [];
+    }
+  }
+
+  async getStepStats(
+    step: ProcessingStep,
+    since: Date,
+  ): Promise<{ total: number; successful: number; failed: number; avgDuration: number }> {
+    if (!this.isConnected || !this.logsCollection) {
+      return { total: 0, successful: 0, failed: 0, avgDuration: 0 };
+    }
+
+    try {
+      const pipeline = [
+        { $match: { step, timestamp: { $gte: since } } },
+        {
+          $group: {
+            _id: null,
+            total: { $sum: 1 },
+            successful: { $sum: { $cond: ["$success", 1, 0] } },
+            failed: { $sum: { $cond: ["$success", 0, 1] } },
+            avgDuration: { $avg: "$duration" },
+          },
+        },
+      ];
+
+      const results = await this.logsCollection.aggregate(pipeline).toArray();
+      if (results.length === 0) {
+        return { total: 0, successful: 0, failed: 0, avgDuration: 0 };
+      }
+
+      return {
+        total: results[0].total as number,
+        successful: results[0].successful as number,
+        failed: results[0].failed as number,
+        avgDuration: Math.round(results[0].avgDuration as number),
+      };
+    } catch (error) {
+      this.logger.error("Failed to get step stats", { step, error });
+      return { total: 0, successful: 0, failed: 0, avgDuration: 0 };
+    }
+  }
+
+  async disconnect(): Promise<void> {
+    if (this.client) {
+      await this.client.close();
+      this.isConnected = false;
+      this.logger.info("Disconnected from MongoDB storage");
+    }
+  }
+
   private getPeriodMs(period: AnalyticsPeriod): number {
     switch (period) {
       case "24h":
@@ -474,14 +647,6 @@ export class DataWarehouseService {
         return 30 * 24 * 60 * 60 * 1000;
       default:
         return 24 * 60 * 60 * 1000;
-    }
-  }
-
-  async disconnect(): Promise<void> {
-    if (this.client) {
-      await this.client.close();
-      this.isConnected = false;
-      this.logger.info("Disconnected from MongoDB warehouse");
     }
   }
 }

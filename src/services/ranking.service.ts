@@ -18,7 +18,7 @@ export class RankingService {
 
     // Comments weight: how much a comment is worth compared to a point
     // 0.3 means ~3 comments = 1 point in value
-    const COMMENT_WEIGHT = 0.3;
+    const COMMENT_WEIGHT = 0.8;
 
     // Calculate total engagement (combines score + comments)
     const engagement = score + comments * COMMENT_WEIGHT;
@@ -44,7 +44,7 @@ export class RankingService {
     // 80 = 1.4x boost
     // 61 = 1.305x boost (minimum passing score)
     // 0 = 1.0x (no boost)
-    const TECH_SCORE_WEIGHT = 0.005; // 0.5% boost per point
+    const TECH_SCORE_WEIGHT = 0.015; // 0.5% boost per point
     const techBoost = 1 + techScore * TECH_SCORE_WEIGHT;
 
     // Final score: multiply by 1000 for human-readable numbers

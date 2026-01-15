@@ -1,7 +1,6 @@
 import { inject, singleton } from "tsyringe";
 import { LoggerService } from "./logger.service";
-import { ProcessingLogsService } from "./processing-logs.service";
-import { DataWarehouseService } from "./data-warehouse.service";
+import { StorageService } from "./storage.service";
 import { CacheService } from "./cache.service";
 import type { NewsItem, EnrichedNewsItem, RankedNewsItem, Source } from "../types";
 
@@ -21,8 +20,7 @@ export class PersistenceService {
 
   constructor(
     @inject(LoggerService) private logger: LoggerService,
-    @inject(ProcessingLogsService) private processingLogs: ProcessingLogsService,
-    @inject(DataWarehouseService) private warehouse: DataWarehouseService,
+    @inject(StorageService) private storage: StorageService,
     @inject(CacheService) private cache: CacheService
   ) {}
 
@@ -34,11 +32,11 @@ export class PersistenceService {
 
     try {
       await this.withRetry(
-        () => this.warehouse.saveRawNews(items, source),
+        () => this.storage.saveRawNews(items, source),
         `persistRawNews:${source}`
       );
 
-      await this.processingLogs.logBatch(
+      await this.storage.logBatch(
         items.map((item) => ({
           step: "fetch" as const,
           source,
@@ -53,7 +51,7 @@ export class PersistenceService {
     } catch (error) {
       this.logger.error(`Failed to persist raw news from ${source}`, { error });
 
-      await this.processingLogs.logBatch(
+      await this.storage.logBatch(
         items.map((item) => ({
           step: "fetch" as const,
           source,
@@ -78,7 +76,7 @@ export class PersistenceService {
 
     try {
       await this.withRetry(
-        () => this.warehouse.saveEnrichedNews(items, source),
+        () => this.storage.saveEnrichedNews(items, source),
         `persistEnrichedNews:${source}`
       );
 
@@ -98,11 +96,11 @@ export class PersistenceService {
 
     try {
       await this.withRetry(
-        () => this.warehouse.saveRankedNews(items, source),
+        () => this.storage.saveRankedNews(items, source),
         `persistRankedNews:${source}`
       );
 
-      await this.processingLogs.logBatch(
+      await this.storage.logBatch(
         items.map((item) => ({
           step: "rank" as const,
           source,
@@ -133,7 +131,7 @@ export class PersistenceService {
     try {
       const [warehouseResult] = await Promise.allSettled([
         this.withRetry(
-          () => this.warehouse.saveMixedFeed(items),
+          () => this.storage.saveMixedFeed(items),
           "persistMixedFeed:warehouse"
         ),
         this.cache.set(cacheKey, items),
@@ -141,7 +139,7 @@ export class PersistenceService {
 
       const success = warehouseResult.status === "fulfilled";
 
-      await this.processingLogs.log(
+      await this.storage.log(
         "mix",
         items[0]?.source || ("mixed" as Source),
         `mixed-feed-${Date.now()}`,
