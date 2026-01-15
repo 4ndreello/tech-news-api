@@ -3,6 +3,7 @@ import type { ArticleWithAuthor, DevToArticle, NewsItem } from "../types";
 import { Source, CacheKey } from "../types";
 import { LoggerService } from "./logger.service";
 import { GeminiService } from "./gemini.service";
+import { capScoreForCodeHostingSites } from "../utils/scoring";
 import { CacheService } from "./cache.service";
 
 @singleton()
@@ -175,10 +176,14 @@ export class DevToService {
         score = cachedScore;
       } else {
         // Analyze with AI (title + body if available)
-        score = await this.geminiService.analyzeTechRelevance(
+        const tempScore = await this.geminiService.analyzeTechRelevance(
           item.title,
           item.body || "",
         );
+
+        // Cap score for code hosting sites
+        const urlToCheck = item.sourceUrl || item.url;
+        score = capScoreForCodeHostingSites(tempScore, urlToCheck);
 
         // Cache score for 24 hours (86400 seconds)
         await this.cacheService.set(cacheKey, score, 86400);

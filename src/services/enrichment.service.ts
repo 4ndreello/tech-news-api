@@ -2,6 +2,7 @@ import { inject, singleton } from "tsyringe";
 import { LoggerService } from "./logger.service";
 import { GeminiService } from "./gemini.service";
 import { ProcessingLogsService } from "./processing-logs.service";
+import { capScoreForCodeHostingSites } from "../utils/scoring";
 import type { NewsItem, EnrichedNewsItem, Source } from "../types";
 
 interface KeywordExtractionResult {
@@ -12,29 +13,105 @@ interface KeywordExtractionResult {
 @singleton()
 export class EnrichmentService {
   private readonly TECH_KEYWORDS = new Set([
-    "javascript", "typescript", "python", "rust", "go", "java", "kotlin", "swift",
-    "react", "vue", "angular", "svelte", "nextjs", "nuxt", "remix",
-    "node", "deno", "bun", "npm", "yarn", "pnpm",
-    "docker", "kubernetes", "k8s", "aws", "gcp", "azure", "cloud",
-    "api", "rest", "graphql", "grpc", "websocket",
-    "database", "sql", "nosql", "mongodb", "postgres", "mysql", "redis",
-    "machine learning", "ml", "ai", "artificial intelligence", "llm", "gpt", "openai",
-    "devops", "ci/cd", "github", "gitlab", "git",
-    "security", "cybersecurity", "encryption", "auth", "oauth",
-    "mobile", "ios", "android", "flutter", "react native",
-    "web", "frontend", "backend", "fullstack", "full-stack",
-    "linux", "unix", "macos", "windows", "os",
-    "startup", "saas", "open source", "opensource",
-    "performance", "optimization", "scaling", "architecture",
-    "testing", "unit test", "integration test", "e2e",
-    "agile", "scrum", "kanban", "lean",
-    "crypto", "blockchain", "web3", "nft",
+    "javascript",
+    "typescript",
+    "python",
+    "rust",
+    "go",
+    "java",
+    "kotlin",
+    "swift",
+    "react",
+    "vue",
+    "angular",
+    "svelte",
+    "nextjs",
+    "nuxt",
+    "remix",
+    "node",
+    "deno",
+    "bun",
+    "npm",
+    "yarn",
+    "pnpm",
+    "docker",
+    "kubernetes",
+    "k8s",
+    "aws",
+    "gcp",
+    "azure",
+    "cloud",
+    "api",
+    "rest",
+    "graphql",
+    "grpc",
+    "websocket",
+    "database",
+    "sql",
+    "nosql",
+    "mongodb",
+    "postgres",
+    "mysql",
+    "redis",
+    "machine learning",
+    "ml",
+    "ai",
+    "artificial intelligence",
+    "llm",
+    "gpt",
+    "openai",
+    "devops",
+    "ci/cd",
+    "github",
+    "gitlab",
+    "git",
+    "security",
+    "cybersecurity",
+    "encryption",
+    "auth",
+    "oauth",
+    "mobile",
+    "ios",
+    "android",
+    "flutter",
+    "react native",
+    "web",
+    "frontend",
+    "backend",
+    "fullstack",
+    "full-stack",
+    "linux",
+    "unix",
+    "macos",
+    "windows",
+    "os",
+    "startup",
+    "saas",
+    "open source",
+    "opensource",
+    "performance",
+    "optimization",
+    "scaling",
+    "architecture",
+    "testing",
+    "unit test",
+    "integration test",
+    "e2e",
+    "agile",
+    "scrum",
+    "kanban",
+    "lean",
+    "crypto",
+    "blockchain",
+    "web3",
+    "nft",
   ]);
 
   constructor(
     @inject(LoggerService) private logger: LoggerService,
     @inject(GeminiService) private geminiService: GeminiService,
-    @inject(ProcessingLogsService) private processingLogs: ProcessingLogsService
+    @inject(ProcessingLogsService)
+    private processingLogs: ProcessingLogsService,
   ) {}
 
   async enrichNewsItem(item: NewsItem): Promise<EnrichedNewsItem> {
@@ -85,7 +162,7 @@ export class EnrichmentService {
         item.id,
         duration,
         success,
-        errorInfo
+        errorInfo,
       );
     }
   }
@@ -95,7 +172,7 @@ export class EnrichmentService {
     this.logger.info(`Enriching batch of ${items.length} items`);
 
     const enriched = await Promise.all(
-      items.map((item) => this.enrichNewsItem(item))
+      items.map((item) => this.enrichNewsItem(item)),
     );
 
     const duration = Date.now() - startTime;
@@ -115,20 +192,27 @@ export class EnrichmentService {
       return item.techScore;
     }
 
-    const hasEnoughContent = (item.body?.length || 0) > 50 || (item.title?.length || 0) > 10;
+    const hasEnoughContent =
+      (item.body?.length || 0) > 50 || (item.title?.length || 0) > 10;
 
     if (!hasEnoughContent) {
       return this.estimateTechScoreFromKeywords(item);
     }
 
     try {
-      const score = await this.geminiService.analyzeTechRelevance(
+      const tempScore = await this.geminiService.analyzeTechRelevance(
         item.title,
-        item.body || ""
+        item.body || "",
       );
+
+      const urlToCheck = item.sourceUrl || item.url;
+      const score = capScoreForCodeHostingSites(tempScore, urlToCheck);
+
       return score;
     } catch (error) {
-      this.logger.warn(`AI analysis failed for ${item.id}, using keyword fallback`);
+      this.logger.warn(
+        `AI analysis failed for ${item.id}, using keyword fallback`,
+      );
       return this.estimateTechScoreFromKeywords(item);
     }
   }

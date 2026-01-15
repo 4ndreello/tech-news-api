@@ -4,6 +4,7 @@ import { CacheKey, Source } from "../types";
 import { CacheService } from "./cache.service";
 import { GeminiService } from "./gemini.service";
 import { LoggerService } from "./logger.service";
+import { capScoreForCodeHostingSites } from "../utils/scoring";
 import { LinkScraperService } from "./link-scraper.service";
 
 @singleton()
@@ -19,7 +20,7 @@ export class HackerNewsService {
     @inject(CacheService) private cacheService: CacheService,
     @inject(GeminiService) private geminiService: GeminiService,
     @inject(LoggerService) private logger: LoggerService,
-    @inject(LinkScraperService) private linkScraperService: LinkScraperService
+    @inject(LinkScraperService) private linkScraperService: LinkScraperService,
   ) {}
 
   /**
@@ -74,7 +75,7 @@ export class HackerNewsService {
     const existingLock = this.fetchLocks.get(batch);
     if (existingLock) {
       this.logger.info(
-        `HackerNews batch ${batch} fetch already in progress, waiting...`
+        `HackerNews batch ${batch} fetch already in progress, waiting...`,
       );
       return existingLock;
     }
@@ -108,12 +109,12 @@ export class HackerNewsService {
     }
 
     this.logger.info(
-      `Fetching ${batchIds.length} stories from HackerNews batch ${batch}...`
+      `Fetching ${batchIds.length} stories from HackerNews batch ${batch}...`,
     );
 
     // Fetch all items in this batch in parallel
     const itemPromises = batchIds.map((id) =>
-      fetch(`${this.HN_BASE_URL}/item/${id}.json`).then((res) => res.json())
+      fetch(`${this.HN_BASE_URL}/item/${id}.json`).then((res) => res.json()),
     );
 
     const itemsRaw = (await Promise.all(itemPromises)) as HackerNewsItem[];
@@ -124,7 +125,7 @@ export class HackerNewsService {
         item &&
         item.title &&
         !item.title.startsWith("[dead]") &&
-        !item.title.startsWith("[flagged]")
+        !item.title.startsWith("[flagged]"),
     );
 
     // Map to NewsItem
@@ -146,7 +147,7 @@ export class HackerNewsService {
     const techFiltered = await this.filterByTechRelevance(mapped);
 
     this.logger.info(
-      `HackerNews batch ${batch}: ${techFiltered.length}/${mapped.length} posts are tech-related`
+      `HackerNews batch ${batch}: ${techFiltered.length}/${mapped.length} posts are tech-related`,
     );
 
     // Cache this batch for 5 minutes
@@ -179,10 +180,13 @@ export class HackerNewsService {
         score = cachedScore;
       } else {
         // Analyze with AI (title + body if available)
-        score = await this.geminiService.analyzeTechRelevance(
+        let tempScore = await this.geminiService.analyzeTechRelevance(
           item.title,
-          item.body || ""
+          item.body || "",
         );
+
+        // Cap score for code hosting sites
+        score = capScoreForCodeHostingSites(tempScore, item.url);
 
         // Cache score for 24 hours (86400 seconds)
         await this.cacheService.set(cacheKey, score, 86400);

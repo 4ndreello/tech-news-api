@@ -3,6 +3,7 @@ import type { NewsItem, TabNewsItem, Comment } from "../types";
 import { Source, CacheKey } from "../types";
 import { CacheService } from "./cache.service";
 import { GeminiService } from "./gemini.service";
+import { capScoreForCodeHostingSites } from "../utils/scoring";
 import { LoggerService } from "./logger.service";
 
 @singleton()
@@ -15,7 +16,7 @@ export class TabNewsService {
   constructor(
     @inject(CacheService) private cacheService: CacheService,
     @inject(GeminiService) private geminiService: GeminiService,
-    @inject(LoggerService) private logger: LoggerService
+    @inject(LoggerService) private logger: LoggerService,
   ) {}
 
   /**
@@ -36,7 +37,7 @@ export class TabNewsService {
     const existingLock = this.fetchLocks.get(page);
     if (existingLock) {
       this.logger.info(
-        `TabNews page ${page} fetch already in progress, waiting...`
+        `TabNews page ${page} fetch already in progress, waiting...`,
       );
       return existingLock;
     }
@@ -57,7 +58,7 @@ export class TabNewsService {
     this.logger.info(`Fetching TabNews page ${page}...`);
 
     const res = await fetch(
-      `${this.TABNEWS_API}?strategy=relevant&page=${page}&per_page=${this.PER_PAGE}`
+      `${this.TABNEWS_API}?strategy=relevant&page=${page}&per_page=${this.PER_PAGE}`,
     );
 
     if (!res.ok) {
@@ -91,7 +92,7 @@ export class TabNewsService {
     const filtered = await this.filterByTechRelevance(mapped);
 
     this.logger.info(
-      `TabNews page ${page}: ${filtered.length}/${mapped.length} posts are tech-related`
+      `TabNews page ${page}: ${filtered.length}/${mapped.length} posts are tech-related`,
     );
 
     // Cache this page for 5 minutes
@@ -124,10 +125,13 @@ export class TabNewsService {
       } else {
         this.logger.info("analyzing tech relevance with AI (tabnews)");
         // Analyze with AI
-        score = await this.geminiService.analyzeTechRelevance(
+        const tempScore = await this.geminiService.analyzeTechRelevance(
           item.title,
-          item.body || ""
+          item.body || "",
         );
+
+        // Cap score for code hosting sites
+        score = capScoreForCodeHostingSites(tempScore, item.sourceUrl);
 
         // Cache score for 24 hours (86400 seconds)
         await this.cacheService.set(cacheKey, score, 86400);
