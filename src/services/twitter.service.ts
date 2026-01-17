@@ -1,252 +1,166 @@
 import { inject, singleton } from "tsyringe";
 import { TwitterApi } from "twitter-api-v2";
-import type { TweetWithAuthor, TwitterTweet, TwitterUser } from "../types";
+import { Source, CacheKey } from "../types";
+import type { NewsItem } from "../types";
 import { LoggerService } from "./logger.service";
+import { DataWarehouseService } from "./data-warehouse.service";
 
 @singleton()
 export class TwitterService {
   private client: TwitterApi;
+  private readonly FETCH_INTERVAL_MS = 8 * 60 * 60 * 1000; // 8 hours
+  private readonly DEFAULT_TARGET_USERS = [
+    "tabnews_br",
+    "filipedeschamps",
+    "diego3g",
+    "akitaonrails",
+    "sseraphini",
+    "htmx_org",
+    "ThePrimeagen",
+    "fireship_dev",
+    "techtangents",
+    "shadcn",
+    "levelsio",
+    "nutlope",
+  ];
 
-  // Tech influencers and official accounts to follow
-  // Reduced to avoid rate limits on Free Tier
-  private readonly TECH_ACCOUNTS = ["vercel", "dhh"];
-
-  // Tech hashtags to search (DISABLED to avoid rate limits)
-  // private readonly TECH_HASHTAGS = [
-  //   "#webdev",
-  //   "#javascript",
-  //   "#typescript",
-  //   "#reactjs",
-  //   "#programming",
-  //   "#coding",
-  // ];
-
-  constructor(@inject(LoggerService) private logger: LoggerService) {
+  constructor(
+    @inject(LoggerService) private logger: LoggerService,
+    @inject(DataWarehouseService) private warehouse: DataWarehouseService
+  ) {
     const bearerToken = process.env.TWITTER_BEARER_TOKEN;
-    const apiKey = process.env.TWITTER_API_KEY;
-    const apiSecret = process.env.TWITTER_API_SECRET;
 
-    // Prefer Bearer Token if available (better rate limits)
     if (bearerToken) {
       this.client = new TwitterApi(bearerToken);
       this.logger.info("Twitter client initialized with Bearer Token");
-    } else if (apiKey && apiSecret) {
-      // Fallback to App-only authentication
-      this.client = new TwitterApi({
-        appKey: apiKey,
-        appSecret: apiSecret,
-      });
-      this.logger.info("Twitter client initialized with App-only auth");
     } else {
-      throw new Error(
-        "Twitter API credentials not found. Need either TWITTER_BEARER_TOKEN or TWITTER_API_KEY + TWITTER_API_SECRET",
+      this.logger.warn(
+        "TWITTER_BEARER_TOKEN not found. Twitter service will fail if called."
       );
+      // Initialize with empty to avoid crash, but methods will check
+      this.client = new TwitterApi("");
     }
   }
 
-  async fetchRecentTweets(maxResults = 100): Promise<TweetWithAuthor[]> {
-    const allTweets: TweetWithAuthor[] = [];
-
-    try {
-      // Use bearer token if already initialized, otherwise get app-only token
-      const client = process.env.TWITTER_BEARER_TOKEN
-        ? this.client
-        : await this.client.appLogin();
-
-      // Search recent tweets from tech accounts (reduced to 10 tweets each)
-      for (const account of this.TECH_ACCOUNTS) {
-        try {
-          const tweets = await this.searchTweetsFromAccount(
-            client,
-            account,
-            30,
-          );
-          this.logger.info(`fetched ${tweets.length} tweets from @${account}`, {
-            account,
-            fetched: tweets.length,
-          });
-          allTweets.push(...tweets);
-        } catch (error) {
-          this.logger.error(`error fetching tweets from @${account}`, {
-            account,
-            error: error instanceof Error ? error.message : String(error),
-          });
-          // Continue with other accounts
-        }
-      }
-
-      // Hashtag search DISABLED to avoid rate limits
-      // for (const hashtag of this.TECH_HASHTAGS) {
-      //   try {
-      //     const tweets = await this.searchTweetsByHashtag(client, hashtag, 15);
-      //     this.logger.info(`fetched ${tweets.length} tweets for ${hashtag}`, {
-      //       hashtag,
-      //       fetched: tweets.length,
-      //     });
-      //     allTweets.push(...tweets);
-      //   } catch (error) {
-      //     this.logger.error(`error fetching tweets for ${hashtag}`, {
-      //       hashtag,
-      //       error: error instanceof Error ? error.message : String(error),
-      //     });
-      //     // Continue with other hashtags
-      //   }
-      // }
-
-      // Remove duplicates based on tweet ID
-      const uniqueTweets = Array.from(
-        new Map(allTweets.map((t) => [t.tweet.id, t])).values(),
-      );
-
-      this.logger.info("completed fetching tweets", {
-        totalFetched: uniqueTweets.length,
-        accountsQueried: this.TECH_ACCOUNTS.length,
-      });
-
-      return uniqueTweets;
-    } catch (error) {
-      this.logger.error("error in fetchRecentTweets", {
-        error: error instanceof Error ? error.message : String(error),
-      });
-      throw error;
-    }
-  }
-
-  private async searchTweetsFromAccount(
-    client: TwitterApi,
-    username: string,
-    maxResults: number,
-  ): Promise<TweetWithAuthor[]> {
-    try {
-      const response = await client.v2.search(`from:${username}`, {
-        max_results: maxResults,
-        "tweet.fields": [
-          "created_at",
-          "public_metrics",
-          "entities",
-          "referenced_tweets",
-        ],
-        "user.fields": ["username", "verified", "public_metrics"],
-        expansions: ["author_id"],
-      });
-
-      const tweets: TweetWithAuthor[] = [];
-      for await (const tweet of response) {
-        tweets.push({
-          tweet: tweet as TwitterTweet,
-          username,
-        });
-      }
-
-      return tweets;
-    } catch (error) {
-      this.logger.error(`search failed for @${username}`, {
-        username,
-        error: error instanceof Error ? error.message : String(error),
-      });
+  async fetchNews(): Promise<NewsItem[]> {
+    if (!process.env.TWITTER_BEARER_TOKEN) {
+      this.logger.warn("Skipping Twitter fetch: No token provided");
       return [];
     }
+
+    // 1. Safety Lock Check
+    const lastFetch = await this.warehouse.getLastFetchTime(Source.Twitter);
+    const now = Date.now();
+    const timeSinceLastFetch = lastFetch ? now - lastFetch.getTime() : Infinity;
+
+    if (timeSinceLastFetch < this.FETCH_INTERVAL_MS) {
+      this.logger.info(
+        `Twitter Safety Lock Active: Last fetch was ${(
+          timeSinceLastFetch /
+          (1000 * 60 * 60)
+        ).toFixed(2)}h ago. Skipping API call.`
+      );
+
+      // Attempt to retrieve from Cache/Warehouse fallback
+      return this.getFallbackData();
+    }
+
+    // 2. Sniper Fetch (Unified Query)
+    return this.executeUnifiedFetch();
   }
 
-  private async searchTweetsByHashtag(
-    client: TwitterApi,
-    hashtag: string,
-    maxResults: number,
-  ): Promise<TweetWithAuthor[]> {
+  private async executeUnifiedFetch(): Promise<NewsItem[]> {
     try {
-      const response = await client.v2.search(hashtag, {
-        max_results: maxResults,
-        "tweet.fields": [
-          "created_at",
-          "public_metrics",
-          "entities",
-          "referenced_tweets",
-          "author_id",
-        ],
-        "user.fields": ["username", "verified", "public_metrics"],
-        expansions: ["author_id"],
+      const targetUsers = process.env.TWITTER_TARGET_USERS
+        ? process.env.TWITTER_TARGET_USERS.split(",").map((u) => u.trim())
+        : this.DEFAULT_TARGET_USERS;
+
+      // Construct Query: (from:user1 OR from:user2) OR (#hashtag1 OR #hashtag2) -is:retweet -is:reply
+      const fromPart = targetUsers.map((u) => `from:${u}`).join(" OR ");
+      
+      // Optional: Add high-signal hashtags if configured
+      // const targetHashtags = ["#rustlang", "#golang"];
+      // const tagPart = targetHashtags.map(t => t).join(" OR ");
+      // const query = `(${fromPart} OR ${tagPart}) -is:retweet -is:reply`;
+      
+      const query = `(${fromPart}) -is:retweet -is:reply`;
+
+      this.logger.info("Executing Twitter Sniper Fetch", {
+        queryLength: query.length,
+        userCount: targetUsers.length,
       });
 
-      const tweets: TweetWithAuthor[] = [];
-      const users = response.includes?.users || [];
+      const items = await this.client.v2.search(query, {
+        "tweet.fields": ["created_at", "public_metrics", "author_id"],
+        "user.fields": ["username", "name", "profile_image_url"],
+        expansions: ["author_id"],
+        max_results: 30, // Hard limit to save bandwidth/quota
+      });
 
-      for await (const tweet of response) {
-        // Find the author username from includes.users
+      const newsItems: NewsItem[] = [];
+      const users = items.includes?.users || [];
+
+      for await (const tweet of items) {
         const author = users.find((u) => u.id === tweet.author_id);
         const username = author?.username || "unknown";
+        const name = author?.name || username;
 
-        tweets.push({
-          tweet: tweet as TwitterTweet,
-          username,
-        });
+        const newsItem: NewsItem = {
+          id: tweet.id,
+          title: tweet.text, // Tweet text as title
+          body: tweet.text,
+          author: `${name} (@${username})`,
+          source: Source.Twitter,
+          score: tweet.public_metrics?.like_count || 0,
+          publishedAt: tweet.created_at || new Date().toISOString(),
+          url: `https://twitter.com/${username}/status/${tweet.id}`,
+          sourceUrl: `https://twitter.com/${username}/status/${tweet.id}`,
+          owner_username: username,
+          commentCount: tweet.public_metrics?.reply_count || 0,
+        };
+
+        newsItems.push(newsItem);
       }
 
-      return tweets;
+      this.logger.info(`Fetched ${newsItems.length} tweets successfully`);
+      return newsItems;
     } catch (error) {
-      this.logger.error(`search failed for ${hashtag}`, {
-        hashtag,
+      this.logger.error("Error in Twitter Sniper Fetch", {
         error: error instanceof Error ? error.message : String(error),
       });
-      return [];
+
+      // On failure, try fallback
+      return this.getFallbackData();
     }
   }
 
-  // Filter tweets by engagement thresholds
-  filterByEngagement(tweets: TweetWithAuthor[]): TweetWithAuthor[] {
-    const MIN_LIKES = Number(process.env.TWITTER_MIN_LIKES) || 10;
-    const MIN_RETWEETS = Number(process.env.TWITTER_MIN_RETWEETS) || 1;
+  private async getFallbackData(): Promise<NewsItem[]> {
+    try {
+      // Try L2 Cache first (via CacheService, though SmartMix usually handles this)
+      // Since SmartMix logic calls this service when L1/L2 expires,
+      // we might want to look directly at Warehouse or just return what we have.
 
-    const filtered = tweets.filter((tweetWithAuthor) => {
-      const { like_count, retweet_count } =
-        tweetWithAuthor.tweet.public_metrics;
-      return like_count >= MIN_LIKES && retweet_count >= MIN_RETWEETS;
-    });
+      // Let's query the Warehouse for the most recent tweets (last 48h)
+      const endDate = new Date();
+      const startDate = new Date(endDate.getTime() - 48 * 60 * 60 * 1000); // 48h
 
-    this.logger.info("filterByEngagement result", {
-      before: tweets.length,
-      after: filtered.length,
-      minLikes: MIN_LIKES,
-      minRetweets: MIN_RETWEETS,
-    });
-
-    return filtered;
-  }
-
-  // Filter spam and promotional content
-  filterSpam(tweets: TweetWithAuthor[]): TweetWithAuthor[] {
-    const SPAM_KEYWORDS = [
-      "giveaway",
-      "follow for follow",
-      "buy now",
-      "limited time",
-      "click here",
-      "dm me",
-    ];
-
-    return tweets.filter((tweetWithAuthor) => {
-      const textLower = tweetWithAuthor.tweet.text.toLowerCase();
-      const hasSpamKeyword = SPAM_KEYWORDS.some((keyword) =>
-        textLower.includes(keyword),
+      this.logger.info("Fetching Twitter fallback data from Warehouse");
+      const fallbackItems = await this.warehouse.getRawNewsBySourceAndDate(
+        Source.Twitter,
+        startDate,
+        endDate
       );
 
-      // Filter out retweets (we want original content)
-      const isRetweet = tweetWithAuthor.tweet.referenced_tweets?.some(
-        (ref) => ref.type === "retweeted",
+      // Deduplicate by ID just in case
+      const uniqueItems = Array.from(
+        new Map(fallbackItems.map((item) => [item.id, item])).values()
       );
 
-      return !hasSpamKeyword && !isRetweet;
-    });
-  }
-
-  // Filter tweets from last 48 hours
-  filterRecent(tweets: TweetWithAuthor[]): TweetWithAuthor[] {
-    const HOURS_48 = 48 * 60 * 60 * 1000;
-    const now = Date.now();
-
-    return tweets.filter((tweetWithAuthor) => {
-      const tweetTime = new Date(tweetWithAuthor.tweet.created_at).getTime();
-      const age = now - tweetTime;
-      return age <= HOURS_48;
-    });
+      this.logger.info(`Retrieved ${uniqueItems.length} tweets from fallback`);
+      return uniqueItems;
+    } catch (error) {
+      this.logger.error("Error fetching Twitter fallback data", { error });
+      return [];
+    }
   }
 }

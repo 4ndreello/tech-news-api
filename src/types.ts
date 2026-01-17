@@ -3,11 +3,13 @@ export enum Source {
   HackerNews = "HackerNews",
   DevTo = "DevTo",
   Lobsters = "Lobsters",
+  Twitter = "Twitter",
 }
 
 export enum CacheKey {
   TabNews = "tabnews",
   HackerNews = "hackernews",
+  Twitter = "twitter",
   TabNewsComments = "comments",
   SmartMix = "smartmix",
   Lobsters = "lobsters",

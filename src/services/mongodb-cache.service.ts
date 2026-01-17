@@ -140,6 +140,22 @@ export class MongoDBCacheService {
     }
   }
 
+  async delete(key: string): Promise<void> {
+    if (!this.isConnected || !this.collection) {
+      return;
+    }
+
+    try {
+      await this.collection.deleteOne({ _id: key });
+      this.logger.info(`Deleted key ${key} from MongoDB L2 cache`);
+    } catch (error) {
+      this.logger.error(`Error deleting cache key ${key} from MongoDB L2`, {
+        key,
+        error,
+      });
+    }
+  }
+
   /**
    * L2 TTL Configuration
    * These are longer than L1 to provide fallback during server restarts

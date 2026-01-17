@@ -103,8 +103,8 @@ app.get("/api/feed", async (c) => {
   try {
     const feedService = container.resolve(FeedService);
 
-    // Validar limit (1-10, default 10)
-    const limit = Math.max(1, Math.min(Number(c.req.query("limit")) || 10, 10));
+    // Validar limit (1-100, default 10)
+    const limit = Math.max(1, Math.min(Number(c.req.query("limit")) || 10, 100));
 
     // Pegar cursor opcional (único, para lista intercalada)
     const after = c.req.query("after");

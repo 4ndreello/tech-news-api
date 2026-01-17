@@ -65,9 +65,10 @@ export class DataWarehouseService {
   private rankedCollection: Collection<RankedNewsDocument> | null = null;
   private mixedCollection: Collection<MixedFeedDocument> | null = null;
   private isConnected = false;
+  private initPromise: Promise<void>;
 
   constructor(@inject(LoggerService) private logger: LoggerService) {
-    this.initialize();
+    this.initPromise = this.initialize();
   }
 
   private async initialize() {
@@ -246,6 +247,7 @@ export class DataWarehouseService {
     startDate: Date,
     endDate: Date
   ): Promise<NewsItem[]> {
+    await this.initPromise;
     if (!this.isConnected || !this.rawCollection) {
       return [];
     }
@@ -461,6 +463,26 @@ export class DataWarehouseService {
         mixedCount: 0,
         logsCount: 0,
       };
+    }
+  }
+
+  async getLastFetchTime(source: string): Promise<Date | null> {
+    await this.initPromise;
+    if (!this.isConnected || !this.rawCollection) {
+      return null;
+    }
+
+    try {
+      const lastItem = await this.rawCollection
+        .find({ source })
+        .sort({ fetchedAt: -1 })
+        .limit(1)
+        .toArray();
+
+      return lastItem[0]?.fetchedAt || null;
+    } catch (error) {
+      this.logger.error(`Error getting last fetch time for ${source}`, { error });
+      return null;
     }
   }
 

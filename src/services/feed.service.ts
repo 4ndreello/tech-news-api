@@ -79,6 +79,7 @@ export class FeedService {
       HackerNews: [],
       DevTo: [],
       Lobsters: [],
+      Twitter: [],
     };
 
     allNews.forEach((news) => {
@@ -102,29 +103,35 @@ export class FeedService {
         ok: !lobstersData.error,
         error: lobstersData.error,
       },
+      { name: Source.Twitter, ok: !mixData.error, error: mixData.error },
     ];
 
-    // Interleave: take top 1 from each source, then top 2, etc.
+    const sourceOrder = [
+      Source.TabNews,
+      Source.HackerNews,
+      Source.Twitter,
+      Source.DevTo,
+      Source.Lobsters,
+    ];
+
+    this.logger.info("Feed distribution", {
+      TabNews: bySource.TabNews.length,
+      HackerNews: bySource.HackerNews.length,
+      Twitter: bySource.Twitter.length,
+      DevTo: bySource.DevTo.length,
+      Lobsters: bySource.Lobsters.length,
+    });
+
     const interleaved: NewsItem[] = [];
     const maxLength = Math.max(
-      bySource.TabNews.length,
-      bySource.HackerNews.length,
-      bySource.DevTo.length,
-      bySource.Lobsters.length
+      ...sourceOrder.map((s) => bySource[s].length)
     );
 
     for (let i = 0; i < maxLength; i++) {
-      if (i < bySource.TabNews.length) {
-        interleaved.push(bySource.TabNews[i]);
-      }
-      if (i < bySource.HackerNews.length) {
-        interleaved.push(bySource.HackerNews[i]);
-      }
-      if (i < bySource.DevTo.length) {
-        interleaved.push(bySource.DevTo[i]);
-      }
-      if (i < bySource.Lobsters.length) {
-        interleaved.push(bySource.Lobsters[i]);
+      for (const source of sourceOrder) {
+        if (i < bySource[source].length) {
+          interleaved.push(bySource[source][i]);
+        }
       }
     }
 

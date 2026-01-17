@@ -88,6 +88,11 @@ export class CacheService {
     await this.mongodbCache.disconnect();
   }
 
+  async delete(key: string): Promise<void> {
+    delete this.memoryCache[key];
+    await this.mongodbCache.delete(key);
+  }
+
   private getCacheDurationSeconds(key: string): number {
     // Tech scores: 2 hours (L1)
     if (key.includes("tech-score")) {
