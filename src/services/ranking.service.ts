@@ -36,8 +36,8 @@ export class RankingService {
 
     // Gravity controls how fast old posts decay (1.8 is Reddit's standard)
     // Higher gravity = faster decay
-    const GRAVITY = 1.6;
-    const ageDecay = Math.pow(ageInHours + 2, GRAVITY); // +2 prevents division by zero
+    const GRAVITY = 1.2;
+    const ageDecay = Math.pow(ageInHours + 6, GRAVITY); // +6 prevents division by zero and expands "fresh" window
 
     // Tech score boost: multiplier based on AI relevance (0-100)
     // 100 = 1.5x boost (50% increase)
@@ -47,10 +47,20 @@ export class RankingService {
     const TECH_SCORE_WEIGHT = 0.015; // 0.5% boost per point
     const techBoost = 1 + techScore * TECH_SCORE_WEIGHT;
 
+    // Penalty for low comments (dilutes empty posts)
+    let commentPenalty = 1.0;
+    if (comments === 0) {
+      commentPenalty = 0.2; // 80% penalty for 0 comments
+    } else if (comments < 3) {
+      commentPenalty = 0.5; // 50% penalty for < 3 comments
+    }
+
     // Final score: multiply by 1000 for human-readable numbers
     // Example: 0.055 → 55, 0.12 → 120
     const SCALE_FACTOR = 1000;
 
-    return Math.round((normalizedScore / ageDecay) * techBoost * SCALE_FACTOR);
+    return Math.round(
+      (normalizedScore / ageDecay) * techBoost * commentPenalty * SCALE_FACTOR
+    );
   }
 }
