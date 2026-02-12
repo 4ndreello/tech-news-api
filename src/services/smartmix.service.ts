@@ -144,7 +144,7 @@ export class SmartMixService {
         if (item.owner_username && item.slug) {
           return `https://www.tabnews.com.br/${item.owner_username}/${item.slug}`;
         }
-        return undefined;
+        return;
       case SourceEnum.HackerNews:
         return `https://news.ycombinator.com/item?id=${item.id}`;
       case SourceEnum.Twitter:
@@ -156,7 +156,7 @@ export class SmartMixService {
             : undefined)
         );
       default:
-        return undefined;
+        return;
     }
   }
 
