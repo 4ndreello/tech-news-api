@@ -115,6 +115,7 @@ export class TwitterService {
           publishedAt: tweet.created_at || new Date().toISOString(),
           url: `https://twitter.com/${username}/status/${tweet.id}`,
           sourceUrl: `https://twitter.com/${username}/status/${tweet.id}`,
+          commentsUrl: `https://twitter.com/${username}/status/${tweet.id}`,
           owner_username: username,
           commentCount: tweet.public_metrics?.reply_count || 0,
         };
@@ -157,7 +158,22 @@ export class TwitterService {
       );
 
       this.logger.info(`Retrieved ${uniqueItems.length} tweets from fallback`);
-      return uniqueItems;
+      const normalized = uniqueItems.map((item) => {
+        if (item.commentsUrl) {
+          return item;
+        }
+
+        const commentsUrl =
+          item.url ||
+          item.sourceUrl ||
+          (item.owner_username
+            ? `https://twitter.com/${item.owner_username}/status/${item.id}`
+            : undefined);
+
+        return commentsUrl ? { ...item, commentsUrl } : item;
+      });
+
+      return normalized;
     } catch (error) {
       this.logger.error("Error fetching Twitter fallback data", { error });
       return [];

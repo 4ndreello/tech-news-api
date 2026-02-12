@@ -21,15 +21,24 @@ const app = new Hono();
 app.use("/*", loggingMiddleware);
 
 // cors configuration - allow frontend access
+const allowedOrigins = new Set([
+  "https://tech-news-front-361874528796.southamerica-east1.run.app",
+  "https://news.andreello.dev.br",
+]);
+
+const isLocalhostOrigin = (origin: string): boolean =>
+  /^http:\/\/localhost:\d+$/.test(origin) ||
+  /^http:\/\/0\.0\.0\.0:\d+$/.test(origin) ||
+  /^http:\/\/127\.0\.0\.1:\d+$/.test(origin);
+
 app.use(
   "/*",
   cors({
-    origin: [
-      "http://localhost:3000",
-      "http://0.0.0.0:3000",
-      "https://tech-news-front-361874528796.southamerica-east1.run.app",
-      "https://news.andreello.dev.br",
-    ],
+    origin: (origin) => {
+      if (!origin) return null;
+      if (isLocalhostOrigin(origin)) return origin;
+      return allowedOrigins.has(origin) ? origin : null;
+    },
     credentials: true,
   })
 );
@@ -42,7 +51,6 @@ app.get("/", (c) => {
       tabnews: "/api/news/tabnews",
       hackernews: "/api/news/hackernews",
       feed: "/api/feed",
-      comments: "/api/comments/:username/:slug",
       servicesStatus: "/api/services/status",
       analytics: {
         trending: "/api/analytics/trending?period=7d",
@@ -132,36 +140,6 @@ app.get("/api/feed", async (c) => {
   }
 });
 
-// Get comments for a specific TabNews article
-app.get("/api/comments/:username/:slug", async (c) => {
-  try {
-    const username = c.req.param("username");
-    const slug = c.req.param("slug");
-
-    if (!username || !slug) {
-      return c.json({ error: "Username e slug são obrigatórios" }, 400);
-    }
-
-    const tabNewsService = container.resolve(TabNewsService);
-    const comments = await tabNewsService.fetchComments(username, slug);
-    return c.json(comments);
-  } catch (error) {
-    const logger = c.get("logger");
-    logger.error("error fetching comments", {
-      error: error instanceof Error ? error.message : String(error),
-      stack: error instanceof Error ? error.stack : undefined,
-    });
-    return c.json(
-      {
-        error:
-          error instanceof Error
-            ? error.message
-            : "Erro ao carregar comentários",
-      },
-      500
-    );
-  }
-});
 
 app.get("/api/services/status", async (c) => {
   try {
@@ -252,7 +230,6 @@ app.notFound((c) => {
         "GET /api/news/tabnews",
         "GET /api/news/hackernews",
         "GET /api/feed",
-        "GET /api/comments/:username/:slug",
         "GET /api/services/status",
         "GET /api/analytics/trending?period=7d",
         "GET /api/analytics/stats",

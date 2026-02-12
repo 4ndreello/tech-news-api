@@ -137,6 +137,7 @@ export class DevToService {
           source: Source.DevTo,
           url: article.url,
           sourceUrl: article.canonical_url,
+          commentsUrl: `${article.url}#comments`,
           body: article.description,
           commentCount: article.comments_count,
         };

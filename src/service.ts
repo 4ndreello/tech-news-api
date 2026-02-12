@@ -2,7 +2,6 @@ import type {
   NewsItem,
   TabNewsItem,
   HackerNewsItem,
-  Comment,
   CacheEntry,
 } from "./types";
 import { Source, CacheKey } from "./types";
@@ -76,6 +75,7 @@ export const fetchTabNews = async (): Promise<NewsItem[]> => {
     owner_username: item.owner_username,
     body: item.body,
     sourceUrl: item.source_url,
+    commentsUrl: `https://www.tabnews.com.br/${item.owner_username}/${item.slug}`,
     commentCount: item.children_deep_count,
   }));
 
@@ -118,6 +118,7 @@ export const fetchHackerNews = async (): Promise<NewsItem[]> => {
       publishedAt: new Date(item.time * 1000).toISOString(),
       source: Source.HackerNews,
       url: item.url || `https://news.ycombinator.com/item?id=${item.id}`,
+      commentsUrl: `https://news.ycombinator.com/item?id=${item.id}`,
       commentCount: item.descendants || 0,
     }));
 
@@ -159,21 +160,4 @@ export const fetchSmartMix = async (): Promise<NewsItem[]> => {
   }
 
   return mixed;
-};
-
-// Fetch comments for a specific TabNews post
-export const fetchTabNewsComments = async (
-  username: string,
-  slug: string,
-): Promise<Comment[]> => {
-  const cacheKey = `${CacheKey.TabNewsComments}:${username}:${slug}`;
-  const cached = getFromCache<Comment[]>(cacheKey);
-  if (cached) return cached;
-
-  const res = await fetch(`${TABNEWS_API}/${username}/${slug}/children`);
-  if (!res.ok) throw new Error("Falha ao carregar comentários");
-  const comments = (await res.json()) as Comment[];
-
-  setCache(cacheKey, comments);
-  return comments;
 };

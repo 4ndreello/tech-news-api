@@ -50,6 +50,7 @@ export class LobstersService {
           source: Source.Lobsters,
           url: item.url || item.short_id_url, // Use short_id_url for text posts
           sourceUrl: item.short_id_url,
+          commentsUrl: item.comments_url,
           commentCount: item.comment_count,
         };
 

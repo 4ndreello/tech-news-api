@@ -1,5 +1,5 @@
 import { singleton, inject } from "tsyringe";
-import type { NewsItem, TabNewsItem, Comment } from "../types";
+import type { NewsItem, TabNewsItem } from "../types";
 import { Source, CacheKey } from "../types";
 import { CacheService } from "./cache.service";
 import { GeminiService } from "./gemini.service";
@@ -85,6 +85,7 @@ export class TabNewsService {
       owner_username: item.owner_username,
       body: item.body,
       sourceUrl: item.source_url,
+      commentsUrl: `https://www.tabnews.com.br/${item.owner_username}/${item.slug}`,
       commentCount: item.children_deep_count,
     }));
 
@@ -154,16 +155,4 @@ export class TabNewsService {
     return filtered;
   }
 
-  async fetchComments(username: string, slug: string): Promise<Comment[]> {
-    const cacheKey = `${CacheKey.TabNewsComments}:${username}:${slug}`;
-    const cached = await this.cacheService.get<Comment[]>(cacheKey);
-    if (cached) return cached;
-
-    const res = await fetch(`${this.TABNEWS_API}/${username}/${slug}/children`);
-    if (!res.ok) throw new Error("Falha ao carregar comentários");
-    const comments = (await res.json()) as Comment[];
-
-    await this.cacheService.set(cacheKey, comments);
-    return comments;
-  }
 }

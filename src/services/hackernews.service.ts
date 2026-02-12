@@ -137,6 +137,7 @@ export class HackerNewsService {
       publishedAt: new Date(item.time * 1000).toISOString(),
       source: Source.HackerNews,
       url: item.url || `https://news.ycombinator.com/item?id=${item.id}`,
+      commentsUrl: `https://news.ycombinator.com/item?id=${item.id}`,
       commentCount: item.descendants || 0,
       body: item.text
         ? this.linkScraperService.extractTextFromHTML(item.text)

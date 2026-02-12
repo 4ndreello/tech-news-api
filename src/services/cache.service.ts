@@ -99,11 +99,6 @@ export class CacheService {
       return 2 * 60 * 60; // 2 hours
     }
 
-    // Comments: 5 minutes (L1)
-    if (key.includes("comments")) {
-      return 5 * 60; // 5 minutes
-    }
-
     // Default news data: 3 minutes (L1)
     return 3 * 60; // 3 minutes
   }
