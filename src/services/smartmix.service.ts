@@ -27,7 +27,13 @@ export class SmartMixService {
 
   async fetchMix(): Promise<NewsItem[]> {
     const cached = await this.cacheService.get<NewsItem[]>(CacheKey.SmartMix);
-    if (cached) return cached;
+    if (cached) {
+      const normalized = this.ensureCommentsUrls(cached);
+      if (normalized !== cached) {
+        await this.cacheService.set(CacheKey.SmartMix, normalized);
+      }
+      return normalized;
+    }
 
     if (this.fetchLock) {
       return this.fetchLock;
@@ -87,6 +93,7 @@ export class SmartMixService {
     const rankedTwitter = this.rankItems(enrichedTwitter, SourceEnum.Twitter);
 
     const mixed = this.interleave(rankedTab, rankedHn, rankedTwitter);
+    const normalizedMixed = this.ensureCommentsUrls(mixed);
 
     this.persistAll(
       tabNews,
@@ -98,18 +105,59 @@ export class SmartMixService {
       twitter,
       enrichedTwitter,
       rankedTwitter,
-      mixed
+      normalizedMixed
     );
 
     this.logger.info(
-      `SmartMix: mixed ${mixed.length} items (${rankedTab.length} TabNews + ${rankedHn.length} HN + ${rankedTwitter.length} Twitter) in ${
+      `SmartMix: mixed ${normalizedMixed.length} items (${rankedTab.length} TabNews + ${rankedHn.length} HN + ${rankedTwitter.length} Twitter) in ${
         Date.now() - startTime
       }ms`
     );
 
-    await this.cacheService.set(CacheKey.SmartMix, mixed);
+    await this.cacheService.set(CacheKey.SmartMix, normalizedMixed);
 
-    return mixed;
+    return normalizedMixed;
+  }
+
+  private ensureCommentsUrls(items: NewsItem[]): NewsItem[] {
+    let changed = false;
+    const normalized = items.map((item) => {
+      if (item.commentsUrl) {
+        return item;
+      }
+
+      const commentsUrl = this.buildCommentsUrl(item);
+      if (!commentsUrl) {
+        return item;
+      }
+
+      changed = true;
+      return { ...item, commentsUrl };
+    });
+
+    return changed ? normalized : items;
+  }
+
+  private buildCommentsUrl(item: NewsItem): string | undefined {
+    switch (item.source) {
+      case SourceEnum.TabNews:
+        if (item.owner_username && item.slug) {
+          return `https://www.tabnews.com.br/${item.owner_username}/${item.slug}`;
+        }
+        return;
+      case SourceEnum.HackerNews:
+        return `https://news.ycombinator.com/item?id=${item.id}`;
+      case SourceEnum.Twitter:
+        return (
+          item.url ||
+          item.sourceUrl ||
+          (item.owner_username
+            ? `https://twitter.com/${item.owner_username}/status/${item.id}`
+            : undefined)
+        );
+      default:
+        return;
+    }
   }
 
   private rankItems(

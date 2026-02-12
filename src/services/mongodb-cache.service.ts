@@ -166,11 +166,6 @@ export class MongoDBCacheService {
       return 7 * 24 * 60 * 60; // 7 days
     }
 
-    // Comments: 30 minutes
-    if (key.includes("comments")) {
-      return 30 * 60; // 30 minutes
-    }
-
     // Default news data: 15 minutes
     return 15 * 60; // 15 minutes
   }

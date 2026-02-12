@@ -10,20 +10,9 @@ export enum CacheKey {
   TabNews = "tabnews",
   HackerNews = "hackernews",
   Twitter = "twitter",
-  TabNewsComments = "comments",
   SmartMix = "smartmix",
   Lobsters = "lobsters",
   DevTo = "devto",
-}
-
-export interface Comment {
-  id: string;
-  parent_id: string | null;
-  owner_username: string;
-  body: string;
-  created_at: string;
-  children: Comment[];
-  tabcoins?: number;
 }
 
 export interface NewsItem {
@@ -35,6 +24,7 @@ export interface NewsItem {
   source: Source;
   url?: string; // External URL for HN
   sourceUrl?: string | null; // External URL for TabNews (if link post)
+  commentsUrl?: string;
   slug?: string; // TabNews slug
   owner_username?: string; // TabNews owner
   body?: string; // Markdown content

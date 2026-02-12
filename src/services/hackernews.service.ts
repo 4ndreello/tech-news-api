@@ -129,19 +129,25 @@ export class HackerNewsService {
     );
 
     // Map to NewsItem
-    const mapped = filtered.map((item) => ({
-      id: String(item.id),
-      title: item.title,
-      author: item.by,
-      score: item.score,
-      publishedAt: new Date(item.time * 1000).toISOString(),
-      source: Source.HackerNews,
-      url: item.url || `https://news.ycombinator.com/item?id=${item.id}`,
-      commentCount: item.descendants || 0,
-      body: item.text
-        ? this.linkScraperService.extractTextFromHTML(item.text)
-        : undefined,
-    }));
+    const mapped = filtered.map((item) => {
+      const commentsUrl = `https://news.ycombinator.com/item?id=${item.id}`;
+      const url = item.url || commentsUrl;
+
+      return {
+        id: String(item.id),
+        title: item.title,
+        author: item.by,
+        score: item.score,
+        publishedAt: new Date(item.time * 1000).toISOString(),
+        source: Source.HackerNews,
+        url,
+        commentsUrl,
+        commentCount: item.descendants || 0,
+        body: item.text
+          ? this.linkScraperService.extractTextFromHTML(item.text)
+          : undefined,
+      };
+    });
 
     // Filter by tech relevance using AI
     const techFiltered = await this.filterByTechRelevance(mapped);
