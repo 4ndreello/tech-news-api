@@ -16,6 +16,31 @@ export class GeminiService {
     this.ai = new GoogleGenAI({ apiKey });
   }
 
+  private async safeGenerateContent(prompt: string): Promise<string | null> {
+    let delay = 500;
+    const maxRetries = 3;
+    const jitter = () => Math.random() * delay * 0.3;
+
+    for (let attempt = 0; attempt <= maxRetries; attempt++) {
+      try {
+        const response = await this.ai.models.generateContent({
+          model: this.geminiModel,
+          contents: [{ role: "user", parts: [{ text: prompt }] }],
+        });
+        return response.text ?? null;
+      } catch (error) {
+        const is429 =
+          error instanceof Error && error.message.includes("429");
+        if (!is429 || attempt >= maxRetries) {
+          throw error;
+        }
+        await new Promise((r) => setTimeout(r, delay + jitter()));
+        delay *= 2;
+      }
+    }
+    return null;
+  }
+
   /**
    * Generates a resume using IA
    * @param text Texto to resume
@@ -25,22 +50,19 @@ export class GeminiService {
   async summarize(text: string, maxTokens: number = 1024): Promise<string> {
     const prompt = GeminiPrompts.summarize(text);
 
-    const response = await this.ai.models.generateContent({
-      model: this.geminiModel,
-      contents: [{ role: "user", parts: [{ text: prompt }] }],
-    });
+    const result = await this.safeGenerateContent(prompt);
 
-    if (!response.text) {
+    if (!result) {
       this.logger.error(
         "Empty response or unexpected response from Gemini API.",
         {
-          responseText: response.text,
+          responseText: result,
         },
       );
       throw new Error("Empty response or unexpected response from Gemini API.");
     }
 
-    return response.text.trim().slice(0, maxTokens);
+    return result.trim().slice(0, maxTokens);
   }
 
   /**
@@ -53,23 +75,20 @@ export class GeminiService {
     const prompt = GeminiPrompts.analyzeTechRelevance(title, body);
 
     try {
-      const response = await this.ai.models.generateContent({
-        model: this.geminiModel,
-        contents: [{ role: "user", parts: [{ text: prompt }] }],
-      });
+      const result = await this.safeGenerateContent(prompt);
 
-      if (!response.text) {
+      if (!result) {
         this.logger.warn(
           "Empty response from Gemini tech analysis, defaulting to 0",
         );
         return 0;
       }
 
-      const score = Number.parseInt(response.text.trim(), 10);
+      const score = Number.parseInt(result.trim(), 10);
 
       if (Number.isNaN(score) || score < 0 || score > 100) {
         this.logger.warn("Invalid score from Gemini, defaulting to 0", {
-          responseText: response.text,
+          responseText: result,
         });
         return 0;
       }

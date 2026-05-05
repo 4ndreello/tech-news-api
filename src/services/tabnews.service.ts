@@ -4,6 +4,7 @@ import { Source, CacheKey } from "../types";
 import { CacheService } from "./cache.service";
 import { GeminiService } from "./gemini.service";
 import { capScoreForCodeHostingSites } from "../utils/scoring";
+import { withConcurrency } from "../utils/async";
 import { LoggerService } from "./logger.service";
 
 @singleton()
@@ -115,8 +116,7 @@ export class TabNewsService {
    * Uses cached scores when available to reduce API calls
    */
   private async filterByTechRelevance(items: NewsItem[]): Promise<NewsItem[]> {
-    const analysisPromises = items.map(async (item) => {
-      // Check if we have cached score for this post
+    const tasks = items.map((item) => async () => {
       const cacheKey = `tech-score:${item.id}`;
       const cachedScore = await this.cacheService.get<number>(cacheKey);
 
@@ -125,24 +125,18 @@ export class TabNewsService {
         score = cachedScore;
       } else {
         this.logger.info("analyzing tech relevance with AI (tabnews)");
-        // Analyze with AI
         const tempScore = await this.geminiService.analyzeTechRelevance(
           item.title,
           item.body || "",
         );
-
-        // Cap score for code hosting sites
         score = capScoreForCodeHostingSites(tempScore, item.sourceUrl);
-
-        // Cache score for 24 hours (86400 seconds)
         await this.cacheService.set(cacheKey, score, 86400);
       }
 
       return { item, score };
     });
 
-    // Wait for all analyses to complete
-    const results = await Promise.all(analysisPromises);
+    const results = await withConcurrency(tasks, 5);
 
     // Filter items with score >= MIN_TECH_SCORE and attach techScore to each item
     const filtered = results
