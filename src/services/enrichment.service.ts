@@ -3,7 +3,6 @@ import { LoggerService } from "./logger.service";
 import { GeminiService } from "./gemini.service";
 import { ProcessingLogsService } from "./processing-logs.service";
 import { capScoreForCodeHostingSites } from "../utils/scoring";
-import { withConcurrency } from "../utils/async";
 import type { NewsItem, EnrichedNewsItem, Source } from "../types";
 
 interface KeywordExtractionResult {
@@ -173,7 +172,7 @@ export class EnrichmentService {
     this.logger.info(`Enriching batch of ${items.length} items`);
 
     const tasks = items.map((item) => () => this.enrichNewsItem(item));
-    const enriched = await withConcurrency(tasks, 5);
+    const enriched = await Promise.all(tasks.map((fn) => fn()));
     
 
     const duration = Date.now() - startTime;

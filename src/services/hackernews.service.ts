@@ -5,7 +5,6 @@ import { CacheService } from "./cache.service";
 import { GeminiService } from "./gemini.service";
 import { LoggerService } from "./logger.service";
 import { capScoreForCodeHostingSites } from "../utils/scoring";
-import { withConcurrency } from "../utils/async";
 import { LinkScraperService } from "./link-scraper.service";
 
 @singleton()
@@ -196,7 +195,7 @@ export class HackerNewsService {
       return { item, score };
     });
 
-    const results = await withConcurrency(tasks, 5);
+    const results = await Promise.all(tasks.map((fn) => fn()));
 
     // Filter items with score >= MIN_TECH_SCORE and attach techScore to each item
     const filtered = results

@@ -2,11 +2,15 @@ import { inject, singleton } from "tsyringe";
 import { GoogleGenAI } from "@google/genai";
 import { LoggerService } from "./logger.service";
 import { GeminiPrompts } from "../prompts/gemini-prompts";
+import { RateLimiter } from "../utils/rate-limiter";
+
+const GEMINI_MAX_CONCURRENCY = Number(process.env.GEMINI_MAX_CONCURRENCY) || 3;
 
 @singleton()
 export class GeminiService {
   private readonly ai: GoogleGenAI;
   private readonly geminiModel = "gemini-2.0-flash-lite";
+  private readonly rateLimiter = new RateLimiter(GEMINI_MAX_CONCURRENCY);
 
   constructor(@inject(LoggerService) private logger: LoggerService) {
     const apiKey = process.env.GEMINI_API_KEY;
@@ -16,6 +20,23 @@ export class GeminiService {
     this.ai = new GoogleGenAI({ apiKey });
   }
 
+  private isTransientError(error: unknown): boolean {
+    if (error instanceof Error && "status" in error) {
+      const status = (error as { status: number }).status;
+      if (status === 429 || (status >= 500 && status < 600)) {
+        return true;
+      }
+    }
+    if (
+      error instanceof Error &&
+      (error.constructor.name === "APIConnectionError" ||
+        error.constructor.name === "APIConnectionTimeoutError")
+    ) {
+      return true;
+    }
+    return false;
+  }
+
   private async safeGenerateContent(prompt: string): Promise<string | null> {
     let delay = 500;
     const maxRetries = 3;
@@ -23,46 +44,26 @@ export class GeminiService {
 
     for (let attempt = 0; attempt <= maxRetries; attempt++) {
       try {
-        const response = await this.ai.models.generateContent({
-          model: this.geminiModel,
-          contents: [{ role: "user", parts: [{ text: prompt }] }],
-        });
+        const response = await this.rateLimiter.run(() =>
+          this.ai.models.generateContent({
+            model: this.geminiModel,
+            contents: [{ role: "user", parts: [{ text: prompt }] }],
+          }),
+        );
         return response.text ?? null;
       } catch (error) {
-        const is429 =
-          error instanceof Error && error.message.includes("429");
-        if (!is429 || attempt >= maxRetries) {
+        if (!this.isTransientError(error) || attempt >= maxRetries) {
           throw error;
         }
+        this.logger.warn("Gemini API transient error, retrying", {
+          attempt: attempt + 1,
+          error,
+        });
         await new Promise((r) => setTimeout(r, delay + jitter()));
         delay *= 2;
       }
     }
     return null;
-  }
-
-  /**
-   * Generates a resume using IA
-   * @param text Texto to resume
-   * @param maxTokens Max tokens to resume
-   * @returns IA resume
-   */
-  async summarize(text: string, maxTokens: number = 1024): Promise<string> {
-    const prompt = GeminiPrompts.summarize(text);
-
-    const result = await this.safeGenerateContent(prompt);
-
-    if (!result) {
-      this.logger.error(
-        "Empty response or unexpected response from Gemini API.",
-        {
-          responseText: result,
-        },
-      );
-      throw new Error("Empty response or unexpected response from Gemini API.");
-    }
-
-    return result.trim().slice(0, maxTokens);
   }
 
   /**
@@ -96,7 +97,7 @@ export class GeminiService {
       return score;
     } catch (error) {
       this.logger.error("Error analyzing tech relevance", { error });
-      return 0; // On error, assume not tech-related (safe default)
+      return 0;
     }
   }
 }
