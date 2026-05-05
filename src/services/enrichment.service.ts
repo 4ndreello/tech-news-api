@@ -171,9 +171,9 @@ export class EnrichmentService {
     const startTime = Date.now();
     this.logger.info(`Enriching batch of ${items.length} items`);
 
-    const enriched = await Promise.all(
-      items.map((item) => this.enrichNewsItem(item)),
-    );
+    const tasks = items.map((item) => () => this.enrichNewsItem(item));
+    const enriched = await Promise.all(tasks.map((fn) => fn()));
+    
 
     const duration = Date.now() - startTime;
     const techNewsCount = enriched.filter((e) => e.isTechNews).length;

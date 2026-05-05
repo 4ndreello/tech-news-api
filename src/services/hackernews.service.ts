@@ -176,8 +176,7 @@ export class HackerNewsService {
    * Adds techScore to each NewsItem for use in ranking
    */
   private async filterByTechRelevance(items: NewsItem[]): Promise<NewsItem[]> {
-    const analysisPromises = items.map(async (item) => {
-      // Check if we have cached score for this post
+    const tasks = items.map((item) => async () => {
       const cacheKey = `tech-score:hn:${item.id}`;
       const cachedScore = await this.cacheService.get<number>(cacheKey);
 
@@ -185,24 +184,18 @@ export class HackerNewsService {
       if (cachedScore !== null) {
         score = cachedScore;
       } else {
-        // Analyze with AI (title + body if available)
         let tempScore = await this.geminiService.analyzeTechRelevance(
           item.title,
           item.body || "",
         );
-
-        // Cap score for code hosting sites
         score = capScoreForCodeHostingSites(tempScore, item.url);
-
-        // Cache score for 24 hours (86400 seconds)
         await this.cacheService.set(cacheKey, score, 86400);
       }
 
       return { item, score };
     });
 
-    // Wait for all analyses to complete
-    const results = await Promise.all(analysisPromises);
+    const results = await Promise.all(tasks.map((fn) => fn()));
 
     // Filter items with score >= MIN_TECH_SCORE and attach techScore to each item
     const filtered = results
