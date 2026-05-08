@@ -131,6 +131,7 @@ export class DataWarehouseService {
   }
 
   async saveRawNews(newsItems: NewsItem[], source: string): Promise<void> {
+    await this.initPromise;
     if (!this.isConnected || !this.rawCollection || newsItems.length === 0) {
       return;
     }
@@ -157,6 +158,7 @@ export class DataWarehouseService {
   }
 
   async saveEnrichedNews(items: EnrichedNewsItem[], source: string): Promise<void> {
+    await this.initPromise;
     if (!this.isConnected || !this.enrichedCollection || items.length === 0) {
       return;
     }
@@ -189,6 +191,7 @@ export class DataWarehouseService {
   }
 
   async saveRankedNews(items: RankedNewsItem[], source: string): Promise<void> {
+    await this.initPromise;
     if (!this.isConnected || !this.rankedCollection || items.length === 0) {
       return;
     }
@@ -221,6 +224,7 @@ export class DataWarehouseService {
   }
 
   async saveMixedFeed(items: NewsItem[]): Promise<void> {
+    await this.initPromise;
     if (!this.isConnected || !this.mixedCollection || items.length === 0) {
       return;
     }
@@ -273,6 +277,7 @@ export class DataWarehouseService {
     endDate: Date,
     limit = 100
   ): Promise<RankedNewsDocument[]> {
+    await this.initPromise;
     if (!this.isConnected || !this.rankedCollection) {
       return [];
     }
@@ -292,6 +297,7 @@ export class DataWarehouseService {
   }
 
   async getTopRankedBySource(source: string, limit = 50): Promise<NewsItem[]> {
+    await this.initPromise;
     if (!this.isConnected || !this.rankedCollection) {
       return [];
     }
@@ -311,6 +317,7 @@ export class DataWarehouseService {
   }
 
   async getTrendingKeywords(period: AnalyticsPeriod, limit = 20): Promise<TrendingTopic[]> {
+    await this.initPromise;
     if (!this.isConnected || !this.rankedCollection) {
       return [];
     }
@@ -360,6 +367,7 @@ export class DataWarehouseService {
   }
 
   async getMostCommentedTopics(period: AnalyticsPeriod, limit = 20): Promise<TrendingTopic[]> {
+    await this.initPromise;
     if (!this.isConnected || !this.rankedCollection) {
       return [];
     }
@@ -415,6 +423,7 @@ export class DataWarehouseService {
   }
 
   async getWarehouseStats(): Promise<WarehouseStats> {
+    await this.initPromise;
     if (!this.isConnected) {
       return {
         rawCount: 0,

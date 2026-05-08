@@ -199,7 +199,7 @@ app.get("/api/analytics/stats", async (c) => {
       analyticsService.getProcessingStats(new Date(Date.now() - 24 * 60 * 60 * 1000)),
     ]);
 
-    c.header("Cache-Control", "public, max-age=300");
+    c.header("Cache-Control", "public, max-age=30");
 
     return c.json({
       warehouse: warehouseStats,

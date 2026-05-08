@@ -1,8 +1,6 @@
 import { inject, singleton } from "tsyringe";
 import { LoggerService } from "./logger.service";
-import { GeminiService } from "./gemini.service";
 import { ProcessingLogsService } from "./processing-logs.service";
-import { capScoreForCodeHostingSites } from "../utils/scoring";
 import type { NewsItem, EnrichedNewsItem, Source } from "../types";
 
 interface KeywordExtractionResult {
@@ -109,7 +107,6 @@ export class EnrichmentService {
 
   constructor(
     @inject(LoggerService) private logger: LoggerService,
-    @inject(GeminiService) private geminiService: GeminiService,
     @inject(ProcessingLogsService)
     private processingLogs: ProcessingLogsService,
   ) {}
@@ -191,30 +188,8 @@ export class EnrichmentService {
     if (item.techScore !== undefined && item.techScore > 0) {
       return item.techScore;
     }
-
-    const hasEnoughContent =
-      (item.body?.length || 0) > 50 || (item.title?.length || 0) > 10;
-
-    if (!hasEnoughContent) {
-      return this.estimateTechScoreFromKeywords(item);
-    }
-
-    try {
-      const tempScore = await this.geminiService.analyzeTechRelevance(
-        item.title,
-        item.body || "",
-      );
-
-      const urlToCheck = item.sourceUrl || item.url;
-      const score = capScoreForCodeHostingSites(tempScore, urlToCheck);
-
-      return score;
-    } catch (error) {
-      this.logger.warn(
-        `AI analysis failed for ${item.id}, using keyword fallback`,
-      );
-      return this.estimateTechScoreFromKeywords(item);
-    }
+    // keyword fallback — background scoring fills cache for next request cycle
+    return this.estimateTechScoreFromKeywords(item);
   }
 
   private estimateTechScoreFromKeywords(item: NewsItem): number {

@@ -2,21 +2,19 @@ import { singleton, inject } from "tsyringe";
 import type { NewsItem, TabNewsItem } from "../types";
 import { Source, CacheKey } from "../types";
 import { CacheService } from "./cache.service";
-import { GeminiService } from "./gemini.service";
-import { capScoreForCodeHostingSites } from "../utils/scoring";
 import { LoggerService } from "./logger.service";
+import { TechScoringService } from "./tech-scoring.service";
 
 @singleton()
 export class TabNewsService {
   private readonly TABNEWS_API = "https://www.tabnews.com.br/api/v1/contents";
-  private readonly MIN_TECH_SCORE = 61; // Minimum score to consider tech-related
   private readonly PER_PAGE = 30; // Items per page from TabNews API
   private fetchLocks: Map<number, Promise<NewsItem[]>> = new Map(); // Lock per page
 
   constructor(
     @inject(CacheService) private cacheService: CacheService,
-    @inject(GeminiService) private geminiService: GeminiService,
     @inject(LoggerService) private logger: LoggerService,
+    @inject(TechScoringService) private techScoringService: TechScoringService,
   ) {}
 
   /**
@@ -89,8 +87,9 @@ export class TabNewsService {
       commentCount: item.children_deep_count,
     }));
 
-    // Filter by tech relevance using AI
-    const filtered = await this.filterByTechRelevance(mapped);
+    const withScores = await this.techScoringService.attachCachedScores(mapped, "");
+    const filtered = this.techScoringService.filterByScore(withScores);
+    this.techScoringService.scoreInBackground(withScores, "");
 
     this.logger.info(
       `TabNews page ${page}: ${filtered.length}/${mapped.length} posts are tech-related`,
@@ -110,42 +109,5 @@ export class TabNewsService {
     return this.fetchPage(1);
   }
 
-  /**
-   * Filters news items by tech relevance using AI analysis
-   * Uses cached scores when available to reduce API calls
-   */
-  private async filterByTechRelevance(items: NewsItem[]): Promise<NewsItem[]> {
-    const tasks = items.map((item) => async () => {
-      const cacheKey = `tech-score:${item.id}`;
-      const cachedScore = await this.cacheService.get<number>(cacheKey);
-
-      let score: number;
-      if (cachedScore !== null) {
-        score = cachedScore;
-      } else {
-        this.logger.info("analyzing tech relevance with AI (tabnews)");
-        const tempScore = await this.geminiService.analyzeTechRelevance(
-          item.title,
-          item.body || "",
-        );
-        score = capScoreForCodeHostingSites(tempScore, item.sourceUrl);
-        await this.cacheService.set(cacheKey, score, 86400);
-      }
-
-      return { item, score };
-    });
-
-    const results = await Promise.all(tasks.map((fn) => fn()));
-
-    // Filter items with score >= MIN_TECH_SCORE and attach techScore to each item
-    const filtered = results
-      .filter(({ score }) => score >= this.MIN_TECH_SCORE)
-      .map(({ item, score }) => ({
-        ...item,
-        techScore: score, // Add AI score to NewsItem for ranking
-      }));
-
-    return filtered;
-  }
 
 }
