@@ -2,15 +2,13 @@ import { inject, singleton } from "tsyringe";
 import type { HackerNewsItem, NewsItem } from "../types";
 import { CacheKey, Source } from "../types";
 import { CacheService } from "./cache.service";
-import { GeminiService } from "./gemini.service";
 import { LoggerService } from "./logger.service";
-import { capScoreForCodeHostingSites } from "../utils/scoring";
+import { TechScoringService } from "./tech-scoring.service";
 import { LinkScraperService } from "./link-scraper.service";
 
 @singleton()
 export class HackerNewsService {
   private readonly HN_BASE_URL = "https://hacker-news.firebaseio.com/v0";
-  private readonly MIN_TECH_SCORE = 61; // Minimum score to consider tech-related
   private readonly BATCH_SIZE = 30; // Items per batch
   private fetchLocks: Map<number, Promise<NewsItem[]>> = new Map(); // Lock per batch
   private topStoriesIds: number[] | null = null; // Cache all IDs
@@ -18,8 +16,8 @@ export class HackerNewsService {
 
   constructor(
     @inject(CacheService) private cacheService: CacheService,
-    @inject(GeminiService) private geminiService: GeminiService,
     @inject(LoggerService) private logger: LoggerService,
+    @inject(TechScoringService) private techScoringService: TechScoringService,
     @inject(LinkScraperService) private linkScraperService: LinkScraperService,
   ) {}
 
@@ -149,8 +147,9 @@ export class HackerNewsService {
       };
     });
 
-    // Filter by tech relevance using AI
-    const techFiltered = await this.filterByTechRelevance(mapped);
+    const withScores = await this.techScoringService.attachCachedScores(mapped, "hn:");
+    const techFiltered = this.techScoringService.filterByScore(withScores);
+    this.techScoringService.scoreInBackground(withScores, "hn:");
 
     this.logger.info(
       `HackerNews batch ${batch}: ${techFiltered.length}/${mapped.length} posts are tech-related`,
@@ -170,41 +169,4 @@ export class HackerNewsService {
     return this.fetchBatch(0);
   }
 
-  /**
-   * Filters news items by tech relevance using AI analysis
-   * Uses cached scores when available to reduce API calls
-   * Adds techScore to each NewsItem for use in ranking
-   */
-  private async filterByTechRelevance(items: NewsItem[]): Promise<NewsItem[]> {
-    const tasks = items.map((item) => async () => {
-      const cacheKey = `tech-score:hn:${item.id}`;
-      const cachedScore = await this.cacheService.get<number>(cacheKey);
-
-      let score: number;
-      if (cachedScore !== null) {
-        score = cachedScore;
-      } else {
-        let tempScore = await this.geminiService.analyzeTechRelevance(
-          item.title,
-          item.body || "",
-        );
-        score = capScoreForCodeHostingSites(tempScore, item.url);
-        await this.cacheService.set(cacheKey, score, 86400);
-      }
-
-      return { item, score };
-    });
-
-    const results = await Promise.all(tasks.map((fn) => fn()));
-
-    // Filter items with score >= MIN_TECH_SCORE and attach techScore to each item
-    const filtered = results
-      .filter(({ score }) => score >= this.MIN_TECH_SCORE)
-      .map(({ item, score }) => ({
-        ...item,
-        techScore: score, // Add AI score to NewsItem for ranking
-      }));
-
-    return filtered;
-  }
 }
