@@ -15,10 +15,11 @@ export class ProcessingLogsService {
   private db: Db | null = null;
   private collection: Collection<ProcessingLogDocument> | null = null;
   private isConnected = false;
+  private initPromise: Promise<void>;
   private readonly TTL_DAYS = 30;
 
   constructor(@inject(LoggerService) private logger: LoggerService) {
-    this.initialize();
+    this.initPromise = this.initialize();
   }
 
   private async initialize() {
@@ -81,6 +82,7 @@ export class ProcessingLogsService {
     error?: { message: string; stack?: string },
     metadata?: Record<string, unknown>
   ): Promise<void> {
+    await this.initPromise;
     if (!this.isConnected || !this.collection) {
       return;
     }
@@ -115,6 +117,7 @@ export class ProcessingLogsService {
   }
 
   async logBatch(entries: Omit<ProcessingLogEntry, "correlationId" | "timestamp">[]): Promise<void> {
+    await this.initPromise;
     if (!this.isConnected || !this.collection || entries.length === 0) {
       return;
     }
@@ -138,6 +141,7 @@ export class ProcessingLogsService {
   }
 
   async getLogsByCorrelation(correlationId: string): Promise<ProcessingLogEntry[]> {
+    await this.initPromise;
     if (!this.isConnected || !this.collection) {
       return [];
     }
@@ -154,6 +158,7 @@ export class ProcessingLogsService {
   }
 
   async getRecentErrors(limit = 100): Promise<ProcessingLogEntry[]> {
+    await this.initPromise;
     if (!this.isConnected || !this.collection) {
       return [];
     }
@@ -174,6 +179,7 @@ export class ProcessingLogsService {
     step: ProcessingStep,
     since: Date
   ): Promise<{ total: number; successful: number; failed: number; avgDuration: number }> {
+    await this.initPromise;
     if (!this.isConnected || !this.collection) {
       return { total: 0, successful: 0, failed: 0, avgDuration: 0 };
     }
