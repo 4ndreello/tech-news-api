@@ -40,6 +40,9 @@ export const loggingMiddleware = async (c: Context, next: Next) => {
     },
   });
 
+  // set correlation ID header before handler runs
+  c.header("X-Correlation-Id", correlationId);
+
   // Executa o handler
   await requestContext.run({ correlationId }, async () => await next());
 
@@ -54,7 +57,4 @@ export const loggingMiddleware = async (c: Context, next: Next) => {
       durationMs: duration,
     },
   });
-
-  // Adiciona correlation ID ao header da resposta
-  c.header("X-Correlation-Id", correlationId);
 };

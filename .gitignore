@@ -17,3 +17,7 @@ Thumbs.db
 *.swp
 *.swo
 *~
+
+
+# Agent
+.commandcode
