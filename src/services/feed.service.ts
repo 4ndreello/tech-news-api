@@ -103,13 +103,16 @@ export class FeedService {
         ok: !lobstersData.error,
         error: lobstersData.error,
       },
-      { name: Source.Twitter, ok: !mixData.error, error: mixData.error },
+      {
+        name: Source.Twitter,
+        ok: true,
+        error: "Temporarily disabled: Twitter/X source is paused",
+      },
     ];
 
     const sourceOrder = [
       Source.TabNews,
       Source.HackerNews,
-      Source.Twitter,
       Source.DevTo,
       Source.Lobsters,
     ];
@@ -117,7 +120,7 @@ export class FeedService {
     this.logger.info("Feed distribution", {
       TabNews: bySource.TabNews.length,
       HackerNews: bySource.HackerNews.length,
-      Twitter: bySource.Twitter.length,
+      Twitter: 0,
       DevTo: bySource.DevTo.length,
       Lobsters: bySource.Lobsters.length,
     });
