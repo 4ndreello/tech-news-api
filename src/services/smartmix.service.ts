@@ -2,7 +2,6 @@ import { singleton, inject } from "tsyringe";
 import type { NewsItem, RankedNewsItem, EnrichedNewsItem, Source } from "../types";
 import { TabNewsService } from "./tabnews.service";
 import { HackerNewsService } from "./hackernews.service";
-import { TwitterService } from "./twitter.service";
 import { RankingService } from "./ranking.service";
 import { CacheService } from "./cache.service";
 import { PersistenceService } from "./persistence.service";
@@ -17,7 +16,6 @@ export class SmartMixService {
   constructor(
     @inject(TabNewsService) private tabNewsService: TabNewsService,
     @inject(HackerNewsService) private hackerNewsService: HackerNewsService,
-    @inject(TwitterService) private twitterService: TwitterService,
     @inject(RankingService) private rankingService: RankingService,
     @inject(CacheService) private cacheService: CacheService,
     @inject(PersistenceService) private persistenceService: PersistenceService,
@@ -52,22 +50,18 @@ export class SmartMixService {
   private async doFetchEnrichAndRank(): Promise<NewsItem[]> {
     const startTime = Date.now();
 
-    const [tabNewsResults, hnResults, twitterResults] = await Promise.allSettled([
+    const [tabNewsResults, hnResults] = await Promise.allSettled([
       this.tabNewsService.fetchPage(1),
       this.hackerNewsService.fetchBatch(0),
-      this.twitterService.fetchNews(),
     ]);
 
     const tabNews =
       tabNewsResults.status === "fulfilled" ? tabNewsResults.value : [];
     const hn = hnResults.status === "fulfilled" ? hnResults.value : [];
-    const twitter =
-      twitterResults.status === "fulfilled" ? twitterResults.value : [];
 
     if (
       tabNewsResults.status === "rejected" &&
-      hnResults.status === "rejected" &&
-      twitterResults.status === "rejected"
+      hnResults.status === "rejected"
     ) {
       throw new Error("Não foi possível carregar nenhuma fonte de notícias.");
     }
@@ -76,23 +70,21 @@ export class SmartMixService {
     this.logger.info(`Fetched news in ${fetchDuration}ms`, {
       tabNews: tabNews.length,
       hackerNews: hn.length,
-      twitter: twitter.length,
+      twitter: 0,
     });
 
     const enrichStartTime = Date.now();
-    const [enrichedTab, enrichedHn, enrichedTwitter] = await Promise.all([
+    const [enrichedTab, enrichedHn] = await Promise.all([
       this.enrichmentService.enrichBatch(tabNews),
       this.enrichmentService.enrichBatch(hn),
-      this.enrichmentService.enrichBatch(twitter),
     ]);
     const enrichDuration = Date.now() - enrichStartTime;
     this.logger.info(`Enriched news in ${enrichDuration}ms`);
 
     const rankedTab = this.rankItems(enrichedTab, SourceEnum.TabNews);
     const rankedHn = this.rankItems(enrichedHn, SourceEnum.HackerNews);
-    const rankedTwitter = this.rankItems(enrichedTwitter, SourceEnum.Twitter);
 
-    const mixed = this.interleave(rankedTab, rankedHn, rankedTwitter);
+    const mixed = this.interleave(rankedTab, rankedHn);
     const normalizedMixed = this.ensureCommentsUrls(mixed);
 
     this.persistAll(
@@ -102,14 +94,11 @@ export class SmartMixService {
       hn,
       enrichedHn,
       rankedHn,
-      twitter,
-      enrichedTwitter,
-      rankedTwitter,
       normalizedMixed
     );
 
     this.logger.info(
-      `SmartMix: mixed ${normalizedMixed.length} items (${rankedTab.length} TabNews + ${rankedHn.length} HN + ${rankedTwitter.length} Twitter) in ${
+      `SmartMix: mixed ${normalizedMixed.length} items (${rankedTab.length} TabNews + ${rankedHn.length} HN) in ${
         Date.now() - startTime
       }ms`
     );
@@ -147,14 +136,6 @@ export class SmartMixService {
         return;
       case SourceEnum.HackerNews:
         return `https://news.ycombinator.com/item?id=${item.id}`;
-      case SourceEnum.Twitter:
-        return (
-          item.url ||
-          item.sourceUrl ||
-          (item.owner_username
-            ? `https://twitter.com/${item.owner_username}/status/${item.id}`
-            : undefined)
-        );
       default:
         return;
     }
@@ -198,16 +179,14 @@ export class SmartMixService {
 
   private interleave(
     tabNews: RankedNewsItem[],
-    hn: RankedNewsItem[],
-    twitter: RankedNewsItem[]
+    hn: RankedNewsItem[]
   ): NewsItem[] {
     const mixed: NewsItem[] = [];
-    const maxLength = Math.max(tabNews.length, hn.length, twitter.length);
+    const maxLength = Math.max(tabNews.length, hn.length);
 
     for (let i = 0; i < maxLength; i++) {
       if (i < tabNews.length) mixed.push(tabNews[i].data);
       if (i < hn.length) mixed.push(hn[i].data);
-      if (i < twitter.length) mixed.push(twitter[i].data);
     }
 
     return mixed;
@@ -220,9 +199,6 @@ export class SmartMixService {
     rawHn: NewsItem[],
     enrichedHn: EnrichedNewsItem[],
     rankedHn: RankedNewsItem[],
-    rawTwitter: NewsItem[],
-    enrichedTwitter: EnrichedNewsItem[],
-    rankedTwitter: RankedNewsItem[],
     mixed: NewsItem[]
   ): void {
     this.persistenceService
@@ -230,17 +206,14 @@ export class SmartMixService {
         raw: [
           { items: rawTab, source: SourceEnum.TabNews },
           { items: rawHn, source: SourceEnum.HackerNews },
-          { items: rawTwitter, source: SourceEnum.Twitter },
         ],
         enriched: [
           { items: enrichedTab, source: SourceEnum.TabNews },
           { items: enrichedHn, source: SourceEnum.HackerNews },
-          { items: enrichedTwitter, source: SourceEnum.Twitter },
         ],
         ranked: [
           { items: rankedTab, source: SourceEnum.TabNews },
           { items: rankedHn, source: SourceEnum.HackerNews },
-          { items: rankedTwitter, source: SourceEnum.Twitter },
         ],
         mixed: { items: mixed, cacheKey: CacheKey.SmartMix },
       })

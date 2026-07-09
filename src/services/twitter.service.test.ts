@@ -19,11 +19,13 @@ const mockWarehouse = {
 const mockSearch = vi.fn();
 vi.mock("twitter-api-v2", () => {
   return {
-    TwitterApi: vi.fn().mockImplementation(() => ({
-      v2: {
-        search: mockSearch,
-      },
-    })),
+    TwitterApi: vi.fn().mockImplementation(function () {
+      return {
+        v2: {
+          search: mockSearch,
+        },
+      };
+    }),
   };
 });
 
