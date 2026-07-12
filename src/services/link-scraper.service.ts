@@ -146,18 +146,8 @@ export class LinkScraperService {
     }
 
     const ipv4 = host.match(/^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/);
-    if (ipv4) {
-      const [a, b] = [
-        Number(ipv4[1]),
-        Number(ipv4[2]),
-      ];
-      if (a === 10) return false;
-      if (a === 127) return false;
-      if (a === 0) return false;
-      if (a === 169 && b === 254) return false;
-      if (a === 172 && b >= 16 && b <= 31) return false;
-      if (a === 192 && b === 168) return false;
-      if (a === 100 && b >= 64 && b <= 127) return false;
+    if (ipv4 && this.isPrivateIPv4(host)) {
+      return false;
     }
 
     // IPv6 checks apply only to actual IPv6 literals (which contain ':').
@@ -170,12 +160,44 @@ export class LinkScraperService {
       if (host.startsWith("fc") || host.startsWith("fd")) {
         return false;
       }
-      if (host.startsWith("fe80")) {
+      // Link-local IPv6 fe80::/10 covers hextets fe80-febf.
+      if (
+        host.startsWith("fe8") ||
+        host.startsWith("fe9") ||
+        host.startsWith("fea") ||
+        host.startsWith("feb")
+      ) {
+        return false;
+      }
+      // IPv4-mapped/translated IPv6 (::ffff:<ipv4>, ::ffff:0:<ipv4>) can
+      // smuggle private IPv4 addresses past the IPv4 checks above.
+      const mapped = host.match(
+        /::ffff:(?:0:)?(\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3})$/,
+      );
+      if (mapped && this.isPrivateIPv4(mapped[1])) {
         return false;
       }
     }
 
     return true;
+  }
+
+  private isPrivateIPv4(ipv4Host: string): boolean {
+    const m = ipv4Host.match(/^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/);
+    if (!m) return false;
+    const a = Number(m[1]);
+    const b = Number(m[2]);
+    // Reject any invalid octets (e.g. >255) defensively.
+    const octets = [Number(m[1]), Number(m[2]), Number(m[3]), Number(m[4])];
+    if (octets.some((o) => o < 0 || o > 255)) return false;
+    if (a === 10) return true;
+    if (a === 127) return true;
+    if (a === 0) return true;
+    if (a === 169 && b === 254) return true;
+    if (a === 172 && b >= 16 && b <= 31) return true;
+    if (a === 192 && b === 168) return true;
+    if (a === 100 && b >= 64 && b <= 127) return true;
+    return false;
   }
 
   private async safeFetch(

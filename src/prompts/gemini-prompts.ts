@@ -53,7 +53,7 @@ Responda APENAS com um número de 0 a 100, onde a pontuação reflete a qualidad
 - 0-40: Não é sobre tecnologia ou é 'slop' (conteúdo de baixa qualidade, carreira, muito básico).
 - 41-70: Relevante para tecnologia, mas pode ser superficial ou notícia geral sem análise técnica.
 - 71-90: Conteúdo técnico de alta qualidade, útil para o dia-a-dia de um desenvolvedor.
-- 91-100: Excelente! Artigo profundo, 'knowledge sharing' de alto nível, leitura obrigatório.
+- 91-100: Excelente! Artigo profundo, 'knowledge sharing' de alto nível, leitura obrigatória.
 
 RESPONDA APENAS O NÚMERO, SEM TEXTO ADICIONAL.`,
 } as const;
