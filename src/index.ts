@@ -72,13 +72,7 @@ app.get("/api/news/tabnews", async (c) => {
       error: error instanceof Error ? error.message : String(error),
       stack: error instanceof Error ? error.stack : undefined,
     });
-    return c.json(
-      {
-        error:
-          error instanceof Error ? error.message : "Erro ao carregar TabNews",
-      },
-      500
-    );
+    return c.json({ error: "Erro ao carregar TabNews" }, 500);
   }
 });
 
@@ -94,15 +88,7 @@ app.get("/api/news/hackernews", async (c) => {
       error: error instanceof Error ? error.message : String(error),
       stack: error instanceof Error ? error.stack : undefined,
     });
-    return c.json(
-      {
-        error:
-          error instanceof Error
-            ? error.message
-            : "Erro ao carregar Hacker News",
-      },
-      500
-    );
+    return c.json({ error: "Erro ao carregar Hacker News" }, 500);
   }
 });
 
@@ -115,7 +101,11 @@ app.get("/api/feed", async (c) => {
     const limit = Math.max(1, Math.min(Number(c.req.query("limit")) || 10, 100));
 
     // Pegar cursor opcional (único, para lista intercalada)
-    const after = c.req.query("after");
+    const rawAfter = c.req.query("after");
+    const after =
+      typeof rawAfter === "string" && rawAfter.length > 0 && rawAfter.length <= 256
+        ? rawAfter
+        : undefined;
 
     // Buscar feed intercalado
     const feed = await feedService.fetchFeed(limit, after);
@@ -131,12 +121,7 @@ app.get("/api/feed", async (c) => {
       error: error instanceof Error ? error.message : String(error),
       stack: error instanceof Error ? error.stack : undefined,
     });
-    return c.json(
-      {
-        error: error instanceof Error ? error.message : "Failed to load feed",
-      },
-      500
-    );
+    return c.json({ error: "Failed to load feed" }, 500);
   }
 });
 
@@ -181,12 +166,7 @@ app.get("/api/analytics/trending", async (c) => {
       error: error instanceof Error ? error.message : String(error),
       stack: error instanceof Error ? error.stack : undefined,
     });
-    return c.json(
-      {
-        error: error instanceof Error ? error.message : "Failed to load trending topics",
-      },
-      500
-    );
+    return c.json({ error: "Failed to load trending topics" }, 500);
   }
 });
 
@@ -212,12 +192,7 @@ app.get("/api/analytics/stats", async (c) => {
       error: error instanceof Error ? error.message : String(error),
       stack: error instanceof Error ? error.stack : undefined,
     });
-    return c.json(
-      {
-        error: error instanceof Error ? error.message : "Failed to load analytics stats",
-      },
-      500
-    );
+    return c.json({ error: "Failed to load analytics stats" }, 500);
   }
 });
 
@@ -253,7 +228,7 @@ app.onError((err, c) => {
       stack: err.stack,
     });
   }
-  return c.json({ error: err.message || "Erro interno do servidor" }, 500);
+  return c.json({ error: "Internal server error" }, 500);
 });
 
 const port = process.env.PORT || 8080;
