@@ -160,14 +160,19 @@ export class LinkScraperService {
       if (a === 100 && b >= 64 && b <= 127) return false;
     }
 
-    if (host === "::1" || host === "::" || host === "[::1]") {
-      return false;
-    }
-    if (host.startsWith("fc") || host.startsWith("fd")) {
-      return false;
-    }
-    if (host.startsWith("fe80")) {
-      return false;
+    // IPv6 checks apply only to actual IPv6 literals (which contain ':').
+    // Applying these prefix checks to all hostnames would wrongly block
+    // legitimate domains like "fdroid.org", "fc.com", etc.
+    if (host.includes(":")) {
+      if (host === "::1" || host === "::" || host === "[::1]") {
+        return false;
+      }
+      if (host.startsWith("fc") || host.startsWith("fd")) {
+        return false;
+      }
+      if (host.startsWith("fe80")) {
+        return false;
+      }
     }
 
     return true;
