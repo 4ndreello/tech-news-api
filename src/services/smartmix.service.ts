@@ -25,6 +25,13 @@ export class SmartMixService {
     @inject(LoggerService) private logger: LoggerService
   ) {}
 
+  /**
+   * Indica se a fonte Twitter está habilitada (token configurado).
+   */
+  isTwitterEnabled(): boolean {
+    return this.twitterService.isEnabled();
+  }
+
   async fetchMix(): Promise<NewsItem[]> {
     const cached = await this.cacheService.get<NewsItem[]>(CacheKey.SmartMix);
     if (cached) {

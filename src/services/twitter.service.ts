@@ -42,6 +42,14 @@ export class TwitterService {
     }
   }
 
+  /**
+   * Indica se o Twitter está habilitado (token configurado).
+   * Sem token, o serviço não busca nada e não deve ser exibido no status.
+   */
+  isEnabled(): boolean {
+    return Boolean(process.env.TWITTER_BEARER_TOKEN);
+  }
+
   async fetchNews(): Promise<NewsItem[]> {
     if (!process.env.TWITTER_BEARER_TOKEN) {
       this.logger.warn("Skipping Twitter fetch: No token provided");

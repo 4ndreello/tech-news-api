@@ -103,8 +103,17 @@ export class FeedService {
         ok: !lobstersData.error,
         error: lobstersData.error,
       },
-      { name: Source.Twitter, ok: !mixData.error, error: mixData.error },
     ];
+
+    // Only report Twitter when it is actually enabled (token configured).
+    // Otherwise it's disabled and shouldn't be shown as "OK".
+    if (this.smartMixService.isTwitterEnabled()) {
+      sources.push({
+        name: Source.Twitter,
+        ok: !mixData.error,
+        error: mixData.error,
+      });
+    }
 
     const sourceOrder = [
       Source.TabNews,
